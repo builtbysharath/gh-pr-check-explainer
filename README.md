@@ -1,8 +1,8 @@
-# GitHub PR Check Explainer — troubleshoot missing required checks
+# GitHub PR Check Explainer: troubleshoot missing required checks
 
 [![CI](https://github.com/builtbysharath/gh-pr-check-explainer/actions/workflows/ci.yml/badge.svg)](https://github.com/builtbysharath/gh-pr-check-explainer/actions/workflows/ci.yml)
 
-**A pull request is stuck on “Expected — Waiting for status to be reported.” Which required check is missing, and what can explain it?**
+**A pull request shows “Expected” and keeps waiting for a required status check. Which result is missing, and what can explain it?**
 
 PR Check Explainer is a read-only CLI for developers troubleshooting GitHub required status checks. It names the missing requirement, checks the commit and reporting App, and connects supported workflow filters or job renames to the missing result. Incomplete evidence stays explicitly uncertain.
 
@@ -10,7 +10,7 @@ PR Check Explainer is a read-only CLI for developers troubleshooting GitHub requ
 
 *Fictional example, not a diagnosis of a live repository. A workflow filter can explain a missing result; this tool does not run or simulate Actions.*
 
-**[Explore the example report](https://builtbysharath.github.io/gh-pr-check-explainer/)** — no installation needed to view the fictional demonstration. Live PR analysis runs through the CLI on your own computer.
+**[Explore the example report](https://builtbysharath.github.io/gh-pr-check-explainer/)**. No installation needed to view the fictional demonstration. Live PR analysis runs through the CLI on your own computer.
 
 ## Try it on a pull request
 
@@ -46,7 +46,7 @@ node bin/gh-pr-check-explainer.js --repo OWNER/REPO --pr NUMBER --format html --
 
 Snapshots and reports can contain private workflow contents. Review them before sharing. HTML reports contain no scripts or remote assets.
 
-## Where it helps — and where it stops
+## Where it helps and where it stops
 
 The verdict covers **required status checks**, not every condition for merging. Live mode supports open PRs on GitHub.com. Matrix/reusable-workflow expansion and some complex filter patterns are outside this release's coverage. Missing permissions or ambiguous evidence produce an unknown verdict.
 

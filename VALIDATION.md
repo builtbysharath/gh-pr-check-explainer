@@ -1,4 +1,4 @@
-# Validation — 9 October 2026
+# Validation: 9 October 2026
 
 ## Reproducible diagnosis
 

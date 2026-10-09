@@ -1,4 +1,4 @@
-# GitHub required check stuck on “Expected — Waiting for status to be reported”
+# GitHub required check stuck on “Expected”
 
 A missing required check is different from a failed test. The branch policy expects a named result, but GitHub has not received an eligible result for the evaluated commit.
 

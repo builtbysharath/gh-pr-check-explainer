@@ -1,4 +1,4 @@
-# Public PR benchmark — 9 October 2026
+# Public PR benchmark: 9 October 2026
 
 This compares captured public GitHub evidence, not current PR state or complete merge readiness. All commands were read-only. `gh` 2.93.0 and the verified official gh-x 0.19.4 binary were used.
 

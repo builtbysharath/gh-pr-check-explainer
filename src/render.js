@@ -15,8 +15,8 @@ export function markdown(report) {
   const lines = ['# PR Check Explainer', '', report.repository + ' #' + report.number,
     '', VERDICTS[report.overall], ...(report.draft ? ['', 'Draft PR: results are compared with merge-time requirements.'] : []), '', 'Evaluated ' + report.evaluation + ': ' + report.evaluatedSha, '', report.scope];
   for (const check of report.checks) {
-    lines.push('', '## ' + check.context + ' — ' + check.state, '', ...check.details.map(detail => '- ' + detail));
-    for (const item of check.evidence) lines.push('- Evidence: ' + item.label + (item.detail ? ' (' + item.detail + ')' : '') + (item.url ? ' — ' + item.url : ''));
+    lines.push('', '## ' + check.context + ': ' + check.state, '', ...check.details.map(detail => '- ' + detail));
+    for (const item of check.evidence) lines.push('- Evidence: ' + item.label + (item.detail ? ' (' + item.detail + ')' : '') + (item.url ? ': ' + item.url : ''));
   }
   if (report.limitations.length) lines.push('', '## Coverage notes', '', ...report.limitations.map(note => '- ' + note));
   return lines.join('\n') + '\n';
