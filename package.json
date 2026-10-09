@@ -24,12 +24,15 @@
     "SECURITY.md",
     "CHANGELOG.md",
     "LICENSE",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "scripts",
+    "site"
   ],
   "scripts": {
     "test": "node --test",
     "demo": "node bin/gh-pr-check-explainer.js --snapshot examples/path-filter.json --format html",
-    "check": "node --check bin/gh-pr-check-explainer.js && node --check src/analyze.js && node --check src/github.js && node --check src/render.js"
+    "check": "node --check bin/gh-pr-check-explainer.js && node --check src/analyze.js && node --check src/github.js && node --check src/render.js",
+    "build:site": "node scripts/build-site.js"
   },
   "dependencies": {
     "picomatch": "^4.0.3",
@@ -37,12 +40,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/73sharath73/gh-pr-check-explainer.git"
+    "url": "https://github.com/builtbysharath/gh-pr-check-explainer.git"
   },
   "bugs": {
-    "url": "https://github.com/73sharath73/gh-pr-check-explainer/issues"
+    "url": "https://github.com/builtbysharath/gh-pr-check-explainer/issues"
   },
-  "homepage": "https://github.com/73sharath73/gh-pr-check-explainer#readme",
+  "homepage": "https://builtbysharath.github.io/gh-pr-check-explainer/",
   "keywords": [
     "github-actions",
     "github-cli",

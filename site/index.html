@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>GitHub Required Check Troubleshooting | PR Check Explainer</title>
+  <meta name="description" content="Understand missing GitHub required status checks with a read-only CLI. See the requirement, commit, reporting App and workflow evidence. Free and open source.">
+  <link rel="canonical" href="https://builtbysharath.github.io/gh-pr-check-explainer/">
+  <meta property="og:title" content="PR Check Explainer — understand missing GitHub required checks">
+  <meta property="og:description" content="A read-only CLI with commit, App and workflow evidence. Try a fictional report before installing.">
+  <meta property="og:url" content="https://builtbysharath.github.io/gh-pr-check-explainer/">
+  <meta property="og:image" content="https://builtbysharath.github.io/gh-pr-check-explainer/demo.jpg">
+  <meta property="og:type" content="website">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main>
+    <header class="top"><a class="brand" href="./">PR Check Explainer</a><a href="https://github.com/builtbysharath/gh-pr-check-explainer">GitHub ↗</a></header>
+    <section class="hero" aria-labelledby="intro-title">
+      <p class="eyebrow">FOR DEVELOPERS MAINTAINING GITHUB CHECKS</p>
+      <h1 id="intro-title">Troubleshoot missing<br>GitHub required checks.</h1>
+      <p class="intro">Understand a pull request stuck on a required status check. See which result is expected, which commit and App matter, and what the workflow configuration can explain.</p>
+      <div class="actions"><a class="button" href="./sample-report.html">Explore the example report</a><a class="secondary" href="#try">Try the CLI</a></div>
+      <p class="quiet">Free · MIT licensed · Read only · No AI API required</p>
+    </section>
+    <section class="example" aria-labelledby="example-title">
+      <div class="section-copy"><p class="eyebrow">ONE CONCRETE EXAMPLE</p><h2 id="example-title">A required build that never started</h2><p>A fictional pull request changes two documentation files. Its workflow only runs for <code>src/**</code>, while the branch policy still requires <code>build</code>. The report names that missing requirement and shows the filter evidence.</p><p class="quiet">This configuration can explain the absence. The tool does not execute or simulate Actions, and this is a synthetic example.</p></div>
+      <a class="report-image" href="./sample-report.html" aria-label="Open the fictional path-filter report"><img src="./demo.jpg" width="1108" height="933" alt="Fictional report showing a blocked build requirement and a path filter excluding both changed files." loading="lazy"></a>
+    </section>
+    <section id="try" class="try" aria-labelledby="try-title">
+      <p class="eyebrow">RUN IT ON YOUR OWN COMPUTER</p><h2 id="try-title">One command. Your existing GitHub access.</h2><p>Install Node 22+ and sign in with <a href="https://cli.github.com/">GitHub CLI</a>. Replace <code>OWNER/REPO</code> and <code>NUMBER</code> below.</p>
+      <pre><code>npm exec --yes \
+  --package=https://github.com/builtbysharath/gh-pr-check-explainer/releases/download/v0.1.0/gh-pr-check-explainer-0.1.0.tgz \
+  -- gh-pr-check-explainer --repo OWNER/REPO --pr NUMBER</code></pre>
+      <p class="quiet">npm downloads the pinned GitHub release and its dependencies. The CLI reads GitHub using your existing <code>gh</code> access. It never posts comments, reruns workflows or changes policy.</p><p><a href="https://github.com/builtbysharath/gh-pr-check-explainer#readme">Full quick start and report export ↗</a></p>
+    </section>
+    <section class="questions" aria-labelledby="questions-title">
+      <p class="eyebrow">BEFORE YOU RELY ON A RESULT</p><h2 id="questions-title">What does the verdict cover?</h2>
+      <details><summary>Does it explain every reason a PR cannot merge?</summary><p>It covers required status checks and observed strict branch freshness. Reviews, conflicts, deployments and merge-queue readiness are outside the verdict. Matrix and reusable-workflow expansion are not supported.</p></details>
+      <details><summary>What if the evidence is incomplete?</summary><p>Unavailable permissions, ambiguous check names and unsupported workflow patterns stay explicitly uncertain. A missing result is not proof of a broken workflow. Read the report's coverage notes.</p></details>
+      <details><summary>Can I upload a private snapshot here?</summary><p>This website has no upload or login form. Run the CLI locally. Saved reports and snapshots can contain private workflow contents; sanitize them before sharing.</p></details>
+      <p><a href="https://github.com/builtbysharath/gh-pr-check-explainer/blob/main/docs/COVERAGE.md">Coverage</a> · <a href="https://github.com/builtbysharath/gh-pr-check-explainer/blob/main/VALIDATION.md">Validation</a> · <a href="https://github.com/builtbysharath/gh-pr-check-explainer/issues/new?template=user-feedback.yml">Share a verified result</a></p>
+    </section>
+    <footer><p>Built by <a href="https://github.com/builtbysharath">Sharath</a> · <a href="https://github.com/builtbysharath/gh-pr-check-explainer">MIT-licensed source</a></p><p>No analytics scripts. GitHub Pages serves this site and may log visits; the site does not process your GitHub credentials.</p></footer>
+  </main>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # GitHub PR Check Explainer — troubleshoot missing required checks
 
-[![CI](https://github.com/73sharath73/gh-pr-check-explainer/actions/workflows/ci.yml/badge.svg)](https://github.com/73sharath73/gh-pr-check-explainer/actions/workflows/ci.yml)
+[![CI](https://github.com/builtbysharath/gh-pr-check-explainer/actions/workflows/ci.yml/badge.svg)](https://github.com/builtbysharath/gh-pr-check-explainer/actions/workflows/ci.yml)
 
 **A pull request is stuck on “Expected — Waiting for status to be reported.” Which required check is missing, and what can explain it?**
 
@@ -10,12 +10,14 @@ PR Check Explainer is a read-only CLI for developers troubleshooting GitHub requ
 
 *Fictional example, not a diagnosis of a live repository. A workflow filter can explain a missing result; this tool does not run or simulate Actions.*
 
+**[Explore the example report](https://builtbysharath.github.io/gh-pr-check-explainer/)** — no installation needed to view the fictional demonstration. Live PR analysis runs through the CLI on your own computer.
+
 ## Try it on a pull request
 
 Requires **Node 22+** and [GitHub CLI](https://cli.github.com/) signed in with access to the repository. Run the pinned release without cloning or installing globally:
 
 ```sh
-npm exec --yes --package=https://github.com/73sharath73/gh-pr-check-explainer/releases/download/v0.1.0/gh-pr-check-explainer-0.1.0.tgz -- gh-pr-check-explainer --repo OWNER/REPO --pr NUMBER
+npm exec --yes --package=https://github.com/builtbysharath/gh-pr-check-explainer/releases/download/v0.1.0/gh-pr-check-explainer-0.1.0.tgz -- gh-pr-check-explainer --repo OWNER/REPO --pr NUMBER
 ```
 
 npm downloads the GitHub release package and its dependencies. The tool uses your existing `gh` access to read GitHub data. It does not rerun workflows, post comments or change repository settings. The package is not published to the npm registry.
@@ -23,7 +25,7 @@ npm downloads the GitHub release package and its dependencies. The tool uses you
 Prefer a checkout, or want the fictional sample?
 
 ```sh
-git clone https://github.com/73sharath73/gh-pr-check-explainer.git
+git clone https://github.com/builtbysharath/gh-pr-check-explainer.git
 cd gh-pr-check-explainer
 npm ci
 node bin/gh-pr-check-explainer.js --snapshot examples/path-filter.json
@@ -56,7 +58,7 @@ The captured comparison shows one draft PR where this tool names an absent requi
 
 ## Feedback and development
 
-Did it clarify a stuck PR? [Open an issue](https://github.com/73sharath73/gh-pr-check-explainer/issues/new) with a public PR link, the tool version and whether the explanation matched what you found. Sanitize private snapshots and never include tokens.
+Did it clarify a stuck PR? [Open an issue](https://github.com/builtbysharath/gh-pr-check-explainer/issues/new) with a public PR link, the tool version and whether the explanation matched what you found. Sanitize private snapshots and never include tokens.
 
 ```sh
 npm test
@@ -65,4 +67,4 @@ npm run check
 
 Reusable analysis: `import {analyze} from './src/analyze.js'`. Exit codes: `0` observed checks satisfied/no required checks; `1` blocker; `2` incomplete evidence or error. See `--help` for options.
 
-MIT licensed · [Releases](https://github.com/73sharath73/gh-pr-check-explainer/releases) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Dependency notices](THIRD_PARTY_NOTICES.md)
+MIT licensed · [Releases](https://github.com/builtbysharath/gh-pr-check-explainer/releases) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Dependency notices](THIRD_PARTY_NOTICES.md)
