@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "repository": "example/acme-widget",
+  "collectedAt": "Synthetic demonstration based on GitHub's documented path-filter behavior",
+  "pr": {
+    "number": 42,
+    "url": "https://github.com/example/acme-widget/pull/42",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "baseBranch": "main",
+    "headBranch": "docs/update",
+    "mergeSha": null,
+    "fork": false
+  },
+  "rulesets": {
+    "available": true,
+    "checks": [
+      {
+        "context": "build",
+        "appId": 15368,
+        "source": "main branch ruleset"
+      }
+    ]
+  },
+  "classic": {
+    "available": true,
+    "checks": []
+  },
+  "headChecks": {
+    "available": true,
+    "data": []
+  },
+  "headStatuses": {
+    "available": true,
+    "data": []
+  },
+  "mergeChecks": {
+    "available": true,
+    "data": []
+  },
+  "mergeStatuses": {
+    "available": true,
+    "data": []
+  },
+  "previousChecks": {
+    "available": true,
+    "data": []
+  },
+  "files": {
+    "available": true,
+    "data": [
+      "README.md",
+      "docs/setup.md"
+    ],
+    "truncated": false
+  },
+  "runs": {
+    "available": true,
+    "data": []
+  },
+  "workflows": {
+    "available": true,
+    "data": [
+      {
+        "path": ".github/workflows/build.yml",
+        "text": "name: Build\non:\n  pull_request:\n    paths:\n      - 'src/**'\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n"
+      }
+    ]
+  },
+  "baseWorkflows": {
+    "available": true,
+    "data": []
+  },
+  "branchFreshness": {
+    "required": false,
+    "available": true,
+    "behindBy": 0
+  }
+}

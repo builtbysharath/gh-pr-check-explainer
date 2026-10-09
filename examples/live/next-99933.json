@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "repository": "vercel/next.js",
+  "collectedAt": "2026-10-09T12:40:50.390Z",
+  "pr": {
+    "number": 99933,
+    "url": "https://github.com/vercel/next.js/pull/99933",
+    "headSha": "1ea0528e5d5248b581a208f158ec0a3c0286d074",
+    "baseSha": "c0c6790fd1d62bc0e14d9ea471e26d4ce781a65d",
+    "headBranch": "next-maintainer/4f0d494bf37a1912/test-2e6aa45ff555f0aa93800352",
+    "baseBranch": "canary",
+    "mergeSha": "837e7c2abca4b5efa4dc8931471e0c4d8a48f4bb",
+    "fork": true,
+    "draft": true
+  },
+  "classic": {
+    "available": true,
+    "checks": []
+  },
+  "rulesets": {
+    "available": true,
+    "checks": [
+      {
+        "context": "thank you, next",
+        "appId": 15368,
+        "source": "vercel/next.js ruleset 15507172",
+        "url": "https://github.com/vercel/next.js/rules/15507172"
+      },
+      {
+        "context": "thank you, build",
+        "appId": 15368,
+        "source": "vercel/next.js ruleset 15507172",
+        "url": "https://github.com/vercel/next.js/rules/15507172"
+      },
+      {
+        "context": "Potentially publish release",
+        "appId": 15368,
+        "source": "vercel/next.js ruleset 15507172",
+        "url": "https://github.com/vercel/next.js/rules/15507172"
+      }
+    ]
+  },
+  "headChecks": {
+    "available": true,
+    "data": [
+      {
+        "id": 113822169241,
+        "name": "Potentially publish release",
+        "status": "completed",
+        "conclusion": "skipped",
+        "sha": "1ea0528e5d5248b581a208f158ec0a3c0286d074",
+        "suiteId": 102768602726,
+        "appId": 15368,
+        "appSlug": "github-actions",
+        "url": "https://github.com/vercel/next.js/actions/runs/37930409649/job/113822169241"
+      },
+      {
+        "id": 113822167195,
+        "name": "thank you, build",
+        "status": "completed",
+        "conclusion": "success",
+        "sha": "1ea0528e5d5248b581a208f158ec0a3c0286d074",
+        "suiteId": 102768602726,
+        "appId": 15368,
+        "appSlug": "github-actions",
+        "url": "https://github.com/vercel/next.js/actions/runs/37930409649/job/113822167195"
+      }
+    ]
+  },
+  "headStatuses": {
+    "available": true,
+    "data": []
+  },
+  "mergeChecks": {
+    "available": true,
+    "data": []
+  },
+  "mergeStatuses": {
+    "available": true,
+    "data": []
+  },
+  "files": {
+    "available": false,
+    "error": "Changed-file list omitted from the compact fixture."
+  },
+  "previousChecks": {
+    "available": true,
+    "data": []
+  },
+  "runs": {
+    "available": true,
+    "data": [
+      {
+        "id": 37930410059,
+        "event": "pull_request",
+        "path": ".github/workflows/build_and_test.yml",
+        "suiteId": 102768603888,
+        "url": "https://github.com/vercel/next.js/actions/runs/37930410059"
+      },
+      {
+        "id": 37930409649,
+        "event": "pull_request",
+        "path": ".github/workflows/build_and_deploy.yml",
+        "suiteId": 102768602726,
+        "url": "https://github.com/vercel/next.js/actions/runs/37930409649"
+      },
+      {
+        "id": 37930404294,
+        "event": "pull_request_target",
+        "path": ".github/workflows/pull_request_auto_label.yml",
+        "suiteId": 102768588388,
+        "url": "https://github.com/vercel/next.js/actions/runs/37930404294"
+      }
+    ]
+  },
+  "workflows": {
+    "available": false,
+    "error": "Workflow sources omitted from this compact public regression fixture; the full captured snapshot remains local."
+  },
+  "baseWorkflows": {
+    "available": false,
+    "error": "Workflow sources omitted from the compact fixture."
+  },
+  "evidenceNote": "Reduced from a live read-only public GitHub collection. Verdicts concern the captured SHA and policy, not current PR state."
+}

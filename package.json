@@ -1,0 +1,45 @@
+{
+  "name": "gh-pr-check-explainer",
+  "version": "0.1.0",
+  "description": "Explain blocked GitHub required checks using policy, commit, and workflow evidence.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "gh-pr-check-explainer": "bin/gh-pr-check-explainer.js"
+  },
+  "exports": "./src/analyze.js",
+  "files": [
+    "bin",
+    "src",
+    "examples",
+    "test",
+    "README.md",
+    "VALIDATION.md",
+    "BENCHMARK.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "demo": "node bin/gh-pr-check-explainer.js --snapshot examples/path-filter.json --format html",
+    "check": "node --check bin/gh-pr-check-explainer.js && node --check src/analyze.js && node --check src/github.js && node --check src/render.js"
+  },
+  "dependencies": {
+    "picomatch": "^4.0.3",
+    "yaml": "^2.8.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/73sharath73/gh-pr-check-explainer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/73sharath73/gh-pr-check-explainer/issues"
+  },
+  "homepage": "https://github.com/73sharath73/gh-pr-check-explainer#readme"
+}
