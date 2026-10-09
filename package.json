@@ -1,7 +1,7 @@
 {
   "name": "gh-pr-check-explainer",
   "version": "0.1.0",
-  "description": "Explain blocked GitHub required checks using policy, commit, and workflow evidence.",
+  "description": "Troubleshoot missing GitHub required status checks with read-only commit, App and workflow evidence.",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -16,6 +16,7 @@
     "src",
     "examples",
     "test",
+    "docs",
     "README.md",
     "VALIDATION.md",
     "BENCHMARK.md",
@@ -41,5 +42,13 @@
   "bugs": {
     "url": "https://github.com/73sharath73/gh-pr-check-explainer/issues"
   },
-  "homepage": "https://github.com/73sharath73/gh-pr-check-explainer#readme"
+  "homepage": "https://github.com/73sharath73/gh-pr-check-explainer#readme",
+  "keywords": [
+    "github-actions",
+    "github-cli",
+    "required-status-checks",
+    "branch-protection",
+    "pull-requests",
+    "ci-cd"
+  ]
 }

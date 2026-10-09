@@ -1,62 +1,68 @@
-# PR Check Explainer
+# GitHub PR Check Explainer — troubleshoot missing required checks
 
 [![CI](https://github.com/73sharath73/gh-pr-check-explainer/actions/workflows/ci.yml/badge.svg)](https://github.com/73sharath73/gh-pr-check-explainer/actions/workflows/ci.yml)
 
-Explain a blocked required status check with the policy, commit, reporting App, and workflow configuration that produced the verdict. This is a local, read-only CLI with a reusable analysis library and portable HTML/JSON/Markdown reports.
+**A pull request is stuck on “Expected — Waiting for status to be reported.” Which required check is missing, and what can explain it?**
 
-## Try it
+PR Check Explainer is a read-only CLI for developers troubleshooting GitHub required status checks. It names the missing requirement, checks the commit and reporting App, and connects supported workflow filters or job renames to the missing result. Incomplete evidence stays explicitly uncertain.
 
-Requires Node 22+; live mode also requires GitHub CLI (`gh`) with access to the repository.
+![Synthetic example: a required build check is missing because its workflow excludes the changed documentation files.](docs/pr-check-demo.jpg)
+
+*Fictional example, not a diagnosis of a live repository. A workflow filter can explain a missing result; this tool does not run or simulate Actions.*
+
+## Try it on a pull request
+
+Requires **Node 22+** and [GitHub CLI](https://cli.github.com/) signed in with access to the repository. Run the pinned release without cloning or installing globally:
+
+```sh
+npm exec --yes --package=https://github.com/73sharath73/gh-pr-check-explainer/releases/download/v0.1.0/gh-pr-check-explainer-0.1.0.tgz -- gh-pr-check-explainer --repo OWNER/REPO --pr NUMBER
+```
+
+npm downloads the GitHub release package and its dependencies. The tool uses your existing `gh` access to read GitHub data. It does not rerun workflows, post comments or change repository settings. The package is not published to the npm registry.
+
+Prefer a checkout, or want the fictional sample?
 
 ```sh
 git clone https://github.com/73sharath73/gh-pr-check-explainer.git
 cd gh-pr-check-explainer
 npm ci
 node bin/gh-pr-check-explainer.js --snapshot examples/path-filter.json
-node bin/gh-pr-check-explainer.js --repo OWNER/REPO --pr NUMBER
+```
+
+The sample intentionally exits `1` because a required check is blocked.
+
+## What you get
+
+- **Named missing checks**, including requirements that have no result to list.
+- **Commit and App evidence**, so an older success or a different reporting App is not silently treated as satisfying the requirement.
+- **Workflow explanations** for supported filters and static job renames, plus observed strict branch-freshness requirements.
+- **Portable text, JSON, Markdown or HTML reports** with evidence links and coverage notes.
+
+```sh
 node bin/gh-pr-check-explainer.js --repo OWNER/REPO --pr NUMBER --format html --output report.html --save-snapshot evidence.json
 ```
 
-The included snapshot is synthetic: a required `build` job filters out a documentation-only pull request. An exit code of 1 is expected for this demo.
+Snapshots and reports can contain private workflow contents. Review them before sharing. HTML reports contain no scripts or remote assets.
 
-## What it explains
+## Where it helps — and where it stops
 
-- A whole workflow excluded by a supported branch or path filter.
-- A required static job removed or renamed between base and head.
-- A passing result from the previous PR commit instead of the evaluated commit.
-- A check reported by a different GitHub App than the policy requires.
-- Failing, running, ambiguous, or missing check results and commit statuses.
-- A GitHub Actions result from an event that cannot satisfy the PR requirement.
-- Strict required-check policies that require an up-to-date branch, using a captured base/head comparison.
-- Missing API access or incomplete collection, which produces an unknown verdict.
+The verdict covers **required status checks**, not every condition for merging. Live mode supports open PRs on GitHub.com. Matrix/reusable-workflow expansion and some complex filter patterns are outside this release's coverage. Missing permissions or ambiguous evidence produce an unknown verdict.
 
-It reads active repository/organization rulesets and classic branch protection separately. When results exist on a confirmed current test-merge commit, that commit takes precedence. Unknown/conflicting mergeability produces incomplete merge coverage. A null classic rule on a protected or unreadable base branch remains unknown rather than assuming no classic requirements. A skipped **job** can pass; a filtered-out **workflow** can leave a required check missing.
+[Full coverage and limits](docs/COVERAGE.md) · [Captured comparison with GitHub CLI and gh-x](BENCHMARK.md) · [Validation evidence](VALIDATION.md)
 
-Evidence links point to the observed run, ruleset, and workflow at its captured SHA. A filter diagnosis says the configuration can explain the missing result; the tool does not execute or simulate Actions.
+The captured comparison shows one draft PR where this tool names an absent requirement omitted from the other captured summaries. Its root cause remains unconfirmed. More independent diagnoses and developer feedback are needed.
 
-## Scope and limits
+[Why is a required check waiting for a status?](docs/expected-status-check.md)
 
-The verdict covers required status checks, not reviews, merge conflicts, deployments, merge-queue readiness, or every other merge policy. Live collection supports open PRs on GitHub.com, using its existing `gh` credentials for that host. GitHub Enterprise Server is outside this release's scope. Matrix-expanded names and reusable workflows are not expanded. Base-context `pull_request_target` producers are not assigned a head-workflow filter or rename explanation. Supported filters use `*`, whole-component `**` and ordered `!` patterns. `?`, embedded double stars and other complex syntax remain uncertain. Push path filters are not inferred from the PR diff. Incomplete changed-file lists, unavailable reporting identities, and ambiguous duplicate check names remain explicitly uncertain.
+## Feedback and development
 
-Live requests only read GitHub data. The tool does not check out a repository, execute workflow code, post comments, rerun checks, or change policy. Snapshots and reports may contain private workflow contents: inspect them before sharing. HTML reports contain no scripts or remote assets. The CLI refuses snapshot/report paths that alias one another.
-
-Exit codes: `0` observed checks satisfied or no required checks; `1` blocker; `2` incomplete evidence or error. `--help` lists all options. The snapshot format is illustrated in `examples/path-filter.json`; it is versioned but remains experimental. Earlier snapshots without branch-freshness evidence remain uncertain on that policy.
-
-## Development
+Did it clarify a stuck PR? [Open an issue](https://github.com/73sharath73/gh-pr-check-explainer/issues/new) with a public PR link, the tool version and whether the explanation matched what you found. Sanitize private snapshots and never include tokens.
 
 ```sh
 npm test
 npm run check
 ```
 
-Tests cover policy/source/commit identity, test-merge precedence, filters, renamed jobs, partial access, and HTML escaping. The analyzer can be imported with `import {analyze} from './src/analyze.js'`.
+Reusable analysis: `import {analyze} from './src/analyze.js'`. Exit codes: `0` observed checks satisfied/no required checks; `1` blocker; `2` incomplete evidence or error. See `--help` for options.
 
-## Positioning
-
-GitHub CLI, [gh-x](https://github.com/hemsoft-dev/gh-x), and [gh-monitor](https://github.com/elecnix/gh-monitor) already show check states and increasingly account for required checks. This prototype focuses on explaining **why** the expected result is missing, with explicit uncertainty and exportable evidence. `BENCHMARK.md` records a real required failure and a draft with a missing required context: the explainer identifies the absent requirement not named in the captured competitor summaries. The root cause of that missing result remains unconfirmed. `VALIDATION.md` records the controls and remaining demand/coverage gaps.
-
-GitHub's [required-check troubleshooting documentation](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks) and [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) are the behavior references.
-
-MIT licensed. Initial GitHub prerelease; npm registry publication has not occurred. Dependency licenses are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-Download source/installable tarballs from the [GitHub release](https://github.com/73sharath73/gh-pr-check-explainer/releases/tag/v0.1.0). The package can be installed from its downloaded `.tgz`; it is not on the npm registry.
+MIT licensed · [Releases](https://github.com/73sharath73/gh-pr-check-explainer/releases) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Dependency notices](THIRD_PARTY_NOTICES.md)

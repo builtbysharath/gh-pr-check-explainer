@@ -1,0 +1,31 @@
+name: Real-use feedback
+description: Tell us whether the tool helped with a real case.
+title: "Feedback: "
+body:
+  - type: markdown
+    attributes:
+      value: "Please omit tokens, private workflow contents and sensitive documents. A public link or fictional reproduction is enough."
+  - type: input
+    id: version
+    attributes:
+      label: Tool version
+    validations:
+      required: true
+  - type: textarea
+    id: use
+    attributes:
+      label: What did you try?
+      description: Public PR link, fictional document details or sanitized reproduction steps.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What did you verify?
+      description: Which finding or explanation was correct, incorrect or uncertain? Did it help you decide what to do?
+    validations:
+      required: true
+  - type: textarea
+    id: friction
+    attributes:
+      label: What was confusing or difficult?

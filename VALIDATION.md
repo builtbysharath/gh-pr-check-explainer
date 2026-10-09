@@ -30,6 +30,6 @@ A fresh cli/cli #14629 capture on 9 October returned `unknown`: the API returned
 
 ## Release checks
 
-Clean packed-package installation, CLI help/demo and library import were verified. CI is configured locally for Linux/macOS on Node 22/24 but has not run on GitHub. Source and package SHA-256 manifests accompany the release. These local validation runs preceded public GitHub publication. No OSS-program application was submitted.
+Clean packed-package installation, CLI help/demo and library import were verified. The published v0.1.0 commit passed all four GitHub CI jobs on Linux/macOS with Node 22/24 ([run 37958226566](https://github.com/73sharath73/gh-pr-check-explainer/actions/runs/37958226566)). Source and package SHA-256 manifests accompany the release. These local validation runs preceded public GitHub publication. No OSS-program application was submitted.
 
 Publication: the repository CI matrix checks Linux/macOS on Node 22/24. Its live status is shown by the README badge. Local source validation and captured benchmarks remain dated evidence, not a promise that every live case or Office producer is supported.
