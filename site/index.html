@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>GitHub Required Check Troubleshooting | PR Check Explainer</title>
   <meta name="description" content="Understand missing GitHub required status checks with a read-only CLI. See the requirement, commit, reporting App and workflow evidence. Free and open source.">
   <link rel="canonical" href="https://builtbysharath.github.io/gh-pr-check-explainer/">
@@ -13,6 +13,7 @@
   <meta property="og:image" content="https://builtbysharath.github.io/gh-pr-check-explainer/demo.jpg">
   <meta property="og:type" content="website">
   <link rel="stylesheet" href="./style.css">
+  <script src="./copy.js" defer></script>
 </head>
 <body>
   <main>
@@ -30,9 +31,11 @@
     </section>
     <section id="try" class="try" aria-labelledby="try-title">
       <p class="eyebrow">RUN IT ON YOUR OWN COMPUTER</p><h2 id="try-title">One command. Your existing GitHub access.</h2><p>Install Node 22+ and sign in with <a href="https://cli.github.com/">GitHub CLI</a>. Replace <code>OWNER/REPO</code> and <code>NUMBER</code> below.</p>
-      <pre><code>npm exec --yes \
+      <pre><code id="install-command">npm exec --yes \
   --package=https://github.com/builtbysharath/gh-pr-check-explainer/releases/download/v0.1.0/gh-pr-check-explainer-0.1.0.tgz \
   -- gh-pr-check-explainer --repo OWNER/REPO --pr NUMBER</code></pre>
+      <button type="button" class="button" data-copy-target="install-command" data-copy-status="command-copy-status" aria-describedby="command-copy-status">Copy command</button><p id="command-copy-status" class="quiet copy-status" role="status" aria-live="polite"></p>
+      <p class="quiet">You can also select the command and copy it manually.</p>
       <p class="quiet">npm downloads the pinned GitHub release and its dependencies. The CLI reads GitHub using your existing <code>gh</code> access. It never posts comments, reruns workflows or changes policy.</p><p><a href="https://github.com/builtbysharath/gh-pr-check-explainer#readme">Full quick start and report export ↗</a></p>
     </section>
     <section class="questions" aria-labelledby="questions-title">

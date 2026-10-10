@@ -142,7 +142,7 @@ test('HTML output escapes repository, context, evidence and unsafe links', () =>
   report.checks[0].evidence.push({label: '<svg onload=alert(1)>', url: 'javascript:alert(1)'});
   const output = html(report);
   assert.ok(output.includes('&lt;script&gt;'));
-  assert.ok(!output.includes('<script>'));
+  assert.ok(!output.includes('<script>alert(1)</script>'));
   assert.ok(!output.includes('href="javascript:'));
 });
 test('invalid repository input causes no request', () => {

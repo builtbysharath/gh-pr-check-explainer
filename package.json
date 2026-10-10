@@ -31,7 +31,7 @@
   "scripts": {
     "test": "node --test",
     "demo": "node bin/gh-pr-check-explainer.js --snapshot examples/path-filter.json --format html",
-    "check": "node --check bin/gh-pr-check-explainer.js && node --check src/analyze.js && node --check src/github.js && node --check src/render.js",
+    "check": "node --check bin/gh-pr-check-explainer.js && node --check src/analyze.js && node --check src/github.js && node --check src/render.js && node --check src/cli-options.js && node --check src/copy.js && node --check scripts/build-site.js",
     "build:site": "node scripts/build-site.js"
   },
   "dependencies": {

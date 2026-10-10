@@ -44,7 +44,15 @@ The sample intentionally exits `1` because a required check is blocked.
 node bin/gh-pr-check-explainer.js --repo OWNER/REPO --pr NUMBER --format html --output report.html --save-snapshot evidence.json
 ```
 
-Snapshots and reports can contain private workflow contents. Review them before sharing. HTML reports contain no scripts or remote assets.
+From the current source checkout, you can also pass a standard PR URL:
+
+```sh
+node bin/gh-pr-check-explainer.js https://github.com/OWNER/REPO/pull/NUMBER --format html --output report.html
+```
+
+Use either the URL or `--repo`/`--pr`; a URL cannot be combined with those options or `--snapshot`. The pinned 0.1.0 release above retains its original flag-based interface.
+
+Snapshots and reports can contain private workflow contents. Review them before sharing. HTML reports include a fixed local copy helper permitted by a CSP hash and no remote assets. Copy Markdown provides success or failure feedback; manual text selection remains available if clipboard access is unavailable.
 
 ## Where it helps and where it stops
 
