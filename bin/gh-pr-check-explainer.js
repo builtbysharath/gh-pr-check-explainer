@@ -5,11 +5,13 @@ import {writePrivate} from '../src/write-private.js';
 import {analyze} from '../src/analyze.js';
 import {collect} from '../src/github.js';
 import {html, markdown} from '../src/render.js';
+import {parseArguments} from '../src/cli-options.js';
 
 const help = [
   'PR Check Explainer',
   '',
   'gh-pr-check-explainer --repo OWNER/REPO --pr NUMBER [--format text|json|markdown|html]',
+  'gh-pr-check-explainer https://github.com/OWNER/REPO/pull/NUMBER [--format html] [--output FILE]',
   'gh-pr-check-explainer --snapshot FILE [--format html] [--output FILE]',
   '',
   '--save-snapshot FILE   Save collected evidence for repeatable local analysis',
@@ -26,15 +28,9 @@ try {
   if (!args.length || args.includes('--help') || args.includes('-h')) {
     console.log(help);
   } else {
-    const options = {};
-    const allowed = new Set(['--repo', '--pr', '--snapshot', '--format', '--output', '--save-snapshot']);
-    for (let i = 0; i < args.length; i += 2) {
-      if (!allowed.has(args[i]) || !args[i + 1] || args[i + 1].startsWith('--') || options[args[i]]) throw new Error('Invalid or duplicate option: ' + args[i]);
-      options[args[i]] = args[i + 1];
-    }
+    const options = parseArguments(args);
     const format = options['--format'] || 'text';
     if (!['text', 'json', 'markdown', 'html'].includes(format)) throw new Error('Unsupported report format.');
-    if (options['--snapshot'] && (options['--repo'] || options['--pr'])) throw new Error('Choose either a snapshot or a live PR.');
     const paths = ['--snapshot', '--output', '--save-snapshot'].filter(key => options[key]);
     for (let i = 0; i < paths.length; i++) for (let j = i + 1; j < paths.length; j++) {
       const left = options[paths[i]], right = options[paths[j]];

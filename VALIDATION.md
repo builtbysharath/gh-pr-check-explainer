@@ -33,3 +33,9 @@ A fresh cli/cli #14629 capture on 9 October returned `unknown`: the API returned
 Clean packed-package installation, CLI help/demo and library import were verified. The published v0.1.0 commit passed all four GitHub CI jobs on Linux/macOS with Node 22/24 ([run 37958226566](https://github.com/builtbysharath/gh-pr-check-explainer/actions/runs/37958226566)). Source and package SHA-256 manifests accompany the release. These local validation runs preceded public GitHub publication. No OSS-program application was submitted.
 
 Publication: the repository CI matrix checks Linux/macOS on Node 22/24. Its live status is shown by the README badge. Local source validation and captured benchmarks remain dated evidence, not a promise that every live case or Office producer is supported.
+
+## 10 October report and CLI regressions
+
+The bounded report update has 53 passing automated tests on Node 22.23.2, covering example-only navigation and evidence placeholders, portable real-report links and escaping, the exact copy-script CSP hash, clipboard success/failure and strict PR URL parsing. The CLI regression uses a fictional `gh` executable to confirm a GET request to the selected PR endpoint and no request for rejected URL input; no live PR was collected for this update. `npm run check` and the static site build passed.
+
+A local in-app browser smoke check confirmed the synthetic evidence is non-clickable, Try on your PR opens the homepage CLI section, and Copy Markdown and Copy command each announce success. Clipboard denial and absence are covered by synthetic controller tests. The pinned 0.1.0 release remains unchanged and uses `--repo`/`--pr`; URL entry is available in the source checkout. These changes have not been deployed. Safari, phone testing and additional live diagnosis benchmarks remain unrun.
