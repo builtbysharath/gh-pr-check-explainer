@@ -17,13 +17,13 @@ function passing(snapshot, overrides = {}) {
 test('explains the documented docs-only PR blocked by a src path filter', () => {
   const report = analyze(fresh());
   assert.equal(report.overall, 'blocked');
-  assert.equal(report.checks[0].code, 'workflow_filtered');
+  assert.equal(report.checks[0].code, 'workflow_filtered'); assert.equal(report.checks[0].cause, 'workflow_filtered');
   assert.ok(report.checks[0].details.some(detail => detail.includes('excludes all 2 changed files')));
   assert.ok(report.checks[0].evidence.some(item => item.url?.endsWith('#L2')));
 });
 test('a matching path does not get diagnosed as filtered', () => {
   const s = fresh(); s.files.data = ['src/index.ts'];
-  assert.equal(analyze(s).checks[0].code, 'required_check_missing');
+  assert.equal(analyze(s).checks[0].code, 'required_check_missing'); assert.equal(analyze(s).checks[0].cause, null);
 });
 test('GitHub question-mark and embedded double-star filters remain unsupported', () => {
   for (const pattern of ['docs?/**', '**.js']) {
@@ -69,7 +69,7 @@ test('a completed failed check is a blocker', () => {
 });
 test('a green workflow_dispatch job cannot satisfy an ordinary PR requirement', () => {
   const s = fresh(); passing(s); s.runs.data[0].event = 'workflow_dispatch';
-  assert.equal(analyze(s).checks[0].code, 'ineligible_workflow_event');
+  assert.equal(analyze(s).checks[0].code, 'ineligible_workflow_event'); assert.equal(analyze(s).checks[0].cause, 'ineligible_workflow_event');
 });
 test('unknown Actions event does not produce a passing verdict', () => {
   const s = fresh(); passing(s); s.runs.data = [];
@@ -77,7 +77,7 @@ test('unknown Actions event does not produce a passing verdict', () => {
 });
 test('same name from the wrong GitHub App explains a blocked check', () => {
   const s = fresh(); passing(s, {appId: 999, appSlug: 'other-ci'});
-  assert.equal(analyze(s).checks[0].code, 'wrong_reporting_app');
+  assert.equal(analyze(s).checks[0].code, 'wrong_reporting_app'); assert.equal(analyze(s).checks[0].cause, 'wrong_reporting_app');
 });
 test('a commit status has an unknown source when the rule requires an App', () => {
   const s = fresh(); s.headStatuses.data = [{context: 'build', state: 'success'}];
@@ -96,6 +96,8 @@ test('a pending commit status still blocks a same-named passing check', () => {
 test('a passing check on the previous commit does not satisfy the current commit', () => {
   const s = fresh(); s.previousChecks.data = [{name: 'build', sha: 'old', appId: 15368, conclusion: 'success'}];
   assert.equal(analyze(s).checks[0].code, 'passed_on_other_commit');
+  // A docs-only follow-up commit: the path filter still explains why the new commit has no result.
+  assert.equal(analyze(s).checks[0].cause, 'workflow_filtered');
 });
 test('test-merge results take precedence over head results', () => {
   const s = fresh(); passing(s); s.pr.mergeSha = 'merge';
@@ -115,7 +117,7 @@ test('missing policy access cannot become a no-requirements verdict', () => {
 test('a job rename is connected to the base branch producer', () => {
   const s = fresh(); s.baseWorkflows = structuredClone(s.workflows);
   s.workflows.data[0].text = s.workflows.data[0].text.replace('  build:', '  verify:');
-  assert.equal(analyze(s).checks[0].code, 'job_removed_or_renamed');
+  assert.equal(analyze(s).checks[0].code, 'job_removed_or_renamed'); assert.equal(analyze(s).checks[0].cause, 'job_removed_or_renamed');
 });
 test('a dynamic producer prevents a confident rename diagnosis', () => {
   const s = fresh(); s.baseWorkflows = structuredClone(s.workflows);

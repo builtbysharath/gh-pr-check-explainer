@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Diagnose classic branch protection without admin access. GitHub's GraphQL API hides the classic rule from read-only tokens, so contributors got an "unknown" verdict. The required checks now come from the base branch summary, which any reader can see. That summary does not say whether the branch must be up to date, so that part stays unknown.
+- JSON reports give each required check a `cause` when configuration explains a missing or ineligible result (`workflow_filtered`, `workflow_has_no_pr_event`, `job_removed_or_renamed`, `wrong_reporting_app`, `ineligible_workflow_event`). It is set even when `code` reports an older passing commit first, as in a docs-only follow-up commit that a path filter skips.
 
 ## 0.2.0: GitHub CLI extension, 2026-10-11
 

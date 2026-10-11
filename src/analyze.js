@@ -171,7 +171,9 @@ export function analyze(snapshot) {
     const details = [];
     const evidence = [{label: 'Required by ' + required.sources.join(', '),
       url: required.url || (required.sourceType && required.sourceType !== 'Repository' ? null : 'https://github.com/' + snapshot.repository + '/rules'), detail: required.context}];
-    const row = {...required, state: 'unknown', code: 'insufficient_evidence', evidence, details, docs: DOCS};
+    // cause names the configuration that explains a missing or ineligible result, even when code reports
+    // something else first (such as an older passing commit).
+    const row = {...required, state: 'unknown', code: 'insufficient_evidence', cause: null, evidence, details, docs: DOCS};
     if (!runSet?.available || !statusSet?.available) {
       details.push('Current check runs or commit statuses could not be read. No diagnosis is inferred from missing data.');
       return row;
@@ -199,7 +201,7 @@ export function analyze(snapshot) {
         evidence.push({label: 'Actions event: ' + workflowRun.event, url: workflowRun.url, detail: workflowRun.path});
         if (!PR_EVENTS.has(workflowRun.event)) {
           row.state = 'blocked';
-          row.code = 'ineligible_workflow_event';
+          row.code = row.cause = 'ineligible_workflow_event';
           details.push('This Actions check ran on ' + workflowRun.event + ', which does not satisfy an ordinary PR required check.');
           return row;
         }
@@ -208,7 +210,7 @@ export function analyze(snapshot) {
       row.code = row.state === 'satisfied' ? 'check_passed' : run.status === 'completed' ? 'check_failed' : 'check_running';
       details.push(run.status === 'completed' ? 'Latest check conclusion: ' + run.conclusion + '.' : 'The check is ' + run.status + '.');
     } else if (matching.length && required.appId && !matchingStatuses.length) {
-      row.state = 'blocked'; row.code = 'wrong_reporting_app';
+      row.state = 'blocked'; row.code = row.cause = 'wrong_reporting_app';
       evidence.push(...matching.map(evidenceForRun));
       details.push('The name matches, but the rule requires GitHub App ' + required.appId + '; observed apps: ' + [...new Set(matching.map(run => run.appId))].join(', ') + '.');
       return row;
@@ -256,7 +258,8 @@ export function analyze(snapshot) {
       const filter = workflowFilter(workflow, snapshot);
       evidence.push({label: workflow.path, url: workflow.url + '#L' + workflow.line, detail: 'Workflow event configuration'});
       if (filter.state === 'excluded' || filter.state === 'unsupported_event') {
-        if (row.code !== 'passed_on_other_commit') row.code = filter.state === 'excluded' ? 'workflow_filtered' : 'workflow_has_no_pr_event';
+        row.cause = filter.state === 'excluded' ? 'workflow_filtered' : 'workflow_has_no_pr_event';
+        if (row.code !== 'passed_on_other_commit') row.code = row.cause;
         details.push(...filter.reasons);
         details.push('This configuration can explain the missing result; other workflow-run conditions have not been executed or simulated.');
       } else if (filter.state === 'unknown') {
@@ -265,7 +268,7 @@ export function analyze(snapshot) {
     } else if (!producers.length && snapshot.workflows?.available && snapshot.baseWorkflows?.available) {
       const removed = baseWorkflows.filter(file => file.names.some(job => job.name === required.context));
       if (removed.length === 1 && !workflows.some(file => file.dynamic)) {
-        row.code = 'job_removed_or_renamed';
+        row.code = row.cause = 'job_removed_or_renamed';
         evidence.push({label: 'Base branch producer: ' + removed[0].path, url: removed[0].url, detail: required.context});
         details.push('The base branch defines this job name, but the PR version no longer does. Review the job rename or deletion and the required-check rule together.');
       }
