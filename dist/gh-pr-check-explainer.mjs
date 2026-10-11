@@ -9481,10 +9481,10 @@ function ghRequest(endpoint, input) {
     return { available: false, error: errorMessage(error) };
   }
 }
-function pages(request, endpoint, extract = (data) => data) {
+async function pages(request, endpoint, extract = (data) => data) {
   const items = [];
   for (let page = 1; page <= 20; page++) {
-    const result = request(endpoint + (endpoint.includes("?") ? "&" : "?") + "per_page=100&page=" + page);
+    const result = await request(endpoint + (endpoint.includes("?") ? "&" : "?") + "per_page=100&page=" + page);
     if (!result.available) return result;
     const values = extract(result.data);
     if (!Array.isArray(values)) return { available: false, error: "Unexpected GitHub response shape." };
@@ -9516,10 +9516,10 @@ function normalizeStatuses(result) {
   });
   return { ...result, data: [...latest.values()] };
 }
-function readWorkflows(request, root, ref) {
-  const listing = request(root + "/contents/.github/workflows?ref=" + endpointPart(ref));
+async function readWorkflows(request, root, ref) {
+  const listing = await request(root + "/contents/.github/workflows?ref=" + endpointPart(ref));
   if (!listing.available) {
-    const tree = request(root + "/git/trees/" + endpointPart(ref) + "?recursive=1");
+    const tree = await request(root + "/git/trees/" + endpointPart(ref) + "?recursive=1");
     if (!tree.available || tree.data.truncated) return { available: false, error: listing.error };
     if (tree.data.tree.some((entry) => entry.path.startsWith(".github/workflows/"))) return { available: false, error: listing.error };
     return { available: true, data: [] };
@@ -9529,7 +9529,7 @@ function readWorkflows(request, root, ref) {
   if (files.length > 100) return { available: false, error: "More than 100 workflows; supported collection limit exceeded." };
   const contents = [];
   for (const file of files) {
-    const result = request(root + "/contents/" + file.path.split("/").map(endpointPart).join("/") + "?ref=" + endpointPart(ref));
+    const result = await request(root + "/contents/" + file.path.split("/").map(endpointPart).join("/") + "?ref=" + endpointPart(ref));
     if (!result.available || result.data.encoding !== "base64" || result.data.size > 1e6) {
       return { available: false, error: "Could not read the complete workflow " + file.path + "." };
     }
@@ -9537,21 +9537,21 @@ function readWorkflows(request, root, ref) {
   }
   return { available: true, data: contents };
 }
-function collect(repository, number, request = ghRequest) {
+async function collect(repository, number, request = ghRequest) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || repository.startsWith("-") || !Number.isSafeInteger(number) || number < 1) throw new Error("Use --repo OWNER/REPO and a positive --pr number.");
   const [owner, repo] = repository.split("/");
   const root = "repos/" + repository;
-  const pull = request(root + "/pulls/" + number);
+  const pull = await request(root + "/pulls/" + number);
   if (!pull.available) throw new Error(pull.error);
   const pr = pull.data;
   if (pr.state !== "open") throw new Error("Live diagnosis supports open pull requests; use a captured snapshot for closed examples.");
-  const classicResult = request("graphql", { query: QUERY, variables: { owner, repo, number } });
+  const classicResult = await request("graphql", { query: QUERY, variables: { owner, repo, number } });
   let classic;
   const baseRef = classicResult.data?.data?.repository?.pullRequest?.baseRef;
   if (!classicResult.available || !baseRef) classic = { available: false, error: classicResult.error || "Base branch policy was not returned." };
   else {
     const rule = baseRef.branchProtectionRule;
-    const branch = !rule ? request(root + "/branches/" + endpointPart(pr.base.ref)) : null;
+    const branch = !rule ? await request(root + "/branches/" + endpointPart(pr.base.ref)) : null;
     const summary = !rule && Object.hasOwn(baseRef, "branchProtectionRule") && branch?.available && branch.data.protected === true ? branch.data.protection : null;
     const summaryChecks = summary?.required_status_checks;
     if (summary) classic = summary.enabled === false || summary.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => ({
@@ -9567,7 +9567,7 @@ function collect(repository, number, request = ghRequest) {
       url: pr.base.repo.html_url + "/settings/branches"
     })) : [] };
   }
-  const rulesResult = pages(request, root + "/rules/branches/" + endpointPart(pr.base.ref));
+  const rulesResult = await pages(request, root + "/rules/branches/" + endpointPart(pr.base.ref));
   const malformedRule = rulesResult.available && rulesResult.data.some((rule) => rule.type === "required_status_checks" && !Array.isArray(rule.parameters?.required_status_checks));
   const rulesets = malformedRule ? { available: false, error: "A required-check rule did not return its checks." } : rulesResult.available ? { available: true, checks: rulesResult.data.filter((rule) => rule.type === "required_status_checks").flatMap((rule) => (rule.parameters?.required_status_checks || []).map((check) => ({
     context: check.context,
@@ -9582,28 +9582,28 @@ function collect(repository, number, request = ghRequest) {
   let branchFreshness = { required: strict, available: !strictUnknown, behindBy: 0 };
   if (strictUnknown) branchFreshness = { required: strict, available: false, error: classic.fromSummary ? "Without admin access, GitHub does not show whether classic branch protection requires an up-to-date branch." : "The strict up-to-date check policy was not fully returned." };
   if (strict) {
-    const branch = request(root + "/branches/" + endpointPart(pr.base.ref));
+    const branch = await request(root + "/branches/" + endpointPart(pr.base.ref));
     const baseTipSha = branch.available && branch.data?.commit?.sha;
-    const compare = typeof baseTipSha === "string" && baseTipSha ? request(root + "/compare/" + endpointPart(baseTipSha) + "..." + endpointPart(pr.head.sha)) : { available: false };
+    const compare = typeof baseTipSha === "string" && baseTipSha ? await request(root + "/compare/" + endpointPart(baseTipSha) + "..." + endpointPart(pr.head.sha)) : { available: false };
     branchFreshness = compare.available && Number.isSafeInteger(compare.data?.behind_by) && compare.data.behind_by >= 0 ? { required: true, available: !strictUnknown, baseTipSha, behindBy: compare.data.behind_by, ...strictUnknown ? { error: "Some strict-check policy fields were unavailable." } : {} } : { required: true, available: false, error: "The required branch up-to-date comparison could not be confirmed." };
   }
-  const checks = (sha) => normalizeChecks(pages(request, root + "/commits/" + endpointPart(sha) + "/check-runs?filter=latest", (data) => data.check_runs), sha);
-  const statuses = (sha) => normalizeStatuses(pages(request, root + "/commits/" + endpointPart(sha) + "/statuses"));
-  const headChecks = checks(pr.head.sha);
-  const headStatuses = statuses(pr.head.sha);
+  const checks = async (sha) => normalizeChecks(await pages(request, root + "/commits/" + endpointPart(sha) + "/check-runs?filter=latest", (data) => data.check_runs), sha);
+  const statuses = async (sha) => normalizeStatuses(await pages(request, root + "/commits/" + endpointPart(sha) + "/statuses"));
+  const headChecks = await checks(pr.head.sha);
+  const headStatuses = await statuses(pr.head.sha);
   const mergeSha = pr.mergeable === true ? pr.merge_commit_sha || null : null;
   const mergeUnavailable = { available: false, error: "A current test-merge commit could not be confirmed; GitHub mergeability is unknown or conflicting." };
-  const mergeChecks = mergeSha ? checks(mergeSha) : mergeUnavailable;
-  const mergeStatuses = mergeSha ? statuses(mergeSha) : mergeUnavailable;
-  const files = pages(request, root + "/pulls/" + number + "/files");
+  const mergeChecks = mergeSha ? await checks(mergeSha) : mergeUnavailable;
+  const mergeStatuses = mergeSha ? await statuses(mergeSha) : mergeUnavailable;
+  const files = await pages(request, root + "/pulls/" + number + "/files");
   if (files.available) {
     files.data = files.data.map((file) => file.filename);
     files.truncated = files.data.length !== pr.changed_files;
   }
-  const commits = pages(request, root + "/pulls/" + number + "/commits");
+  const commits = await pages(request, root + "/pulls/" + number + "/commits");
   const previousSha = commits.available && commits.data.length > 1 && commits.data.at(-1).sha === pr.head.sha ? commits.data.at(-2).sha : null;
-  const previousChecks = previousSha ? checks(previousSha) : { available: true, data: [] };
-  const runsResult = pages(request, root + "/actions/runs?head_sha=" + endpointPart(pr.head.sha), (data) => data.workflow_runs);
+  const previousChecks = previousSha ? await checks(previousSha) : { available: true, data: [] };
+  const runsResult = await pages(request, root + "/actions/runs?head_sha=" + endpointPart(pr.head.sha), (data) => data.workflow_runs);
   const runs = runsResult.available ? { ...runsResult, data: runsResult.data.map((run) => ({
     id: run.id,
     event: run.event,
@@ -9612,8 +9612,8 @@ function collect(repository, number, request = ghRequest) {
     url: run.html_url
   })) } : runsResult;
   const headRoot = pr.head.repo?.full_name && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(pr.head.repo.full_name) ? "repos/" + pr.head.repo.full_name : root;
-  const workflows = readWorkflows(request, headRoot, pr.head.sha);
-  const baseWorkflows = readWorkflows(request, root, pr.base.sha);
+  const workflows = await readWorkflows(request, headRoot, pr.head.sha);
+  const baseWorkflows = await readWorkflows(request, root, pr.base.sha);
   return {
     schemaVersion: 1,
     repository,
@@ -9769,7 +9769,7 @@ try {
       }
       if (same) throw new Error("Snapshot input, saved evidence and report output must be different files.");
     }
-    const snapshot = options["--snapshot"] ? JSON.parse(readFileSync(options["--snapshot"], "utf8")) : collect(options["--repo"] || "", Number(options["--pr"]));
+    const snapshot = options["--snapshot"] ? JSON.parse(readFileSync(options["--snapshot"], "utf8")) : await collect(options["--repo"] || "", Number(options["--pr"]));
     if (options["--save-snapshot"]) writePrivate(options["--save-snapshot"], JSON.stringify(snapshot, null, 2) + "\n");
     const report = analyze(snapshot);
     const output = format === "json" ? JSON.stringify(report, null, 2) + "\n" : format === "html" ? html(report) : markdown(report);

@@ -7,7 +7,7 @@ import {spawnSync} from 'node:child_process';
 import {parseArguments} from '../src/cli-options.js';
 import {collect} from '../src/github.js';
 
-test('standard PR URLs select the same read-only collector target as existing flags', () => {
+test('standard PR URLs select the same read-only collector target as existing flags', async () => {
   for (const args of [
     ['https://github.com/example/acme-widget/pull/42'],
     ['--format', 'html', 'https://github.com/example/acme-widget/pull/42/', '--output', 'report.html'],
@@ -16,7 +16,7 @@ test('standard PR URLs select the same read-only collector target as existing fl
     const options = parseArguments(args), calls = [];
     assert.equal(options['--repo'], 'example/acme-widget');
     assert.equal(options['--pr'], '42');
-    assert.throws(() => collect(options['--repo'], Number(options['--pr']), (endpoint, input) => {
+    await assert.rejects(() => collect(options['--repo'], Number(options['--pr']), (endpoint, input) => {
       calls.push({endpoint, input}); return {available: false, error: 'test stops before network'};
     }), /test stops/);
     assert.deepEqual(calls, [{endpoint: 'repos/example/acme-widget/pulls/42', input: undefined}]);

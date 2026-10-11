@@ -39,7 +39,7 @@ try {
       if (same) throw new Error('Snapshot input, saved evidence and report output must be different files.');
     }
     const snapshot = options['--snapshot'] ? JSON.parse(readFileSync(options['--snapshot'], 'utf8')) :
-      collect(options['--repo'] || '', Number(options['--pr']));
+      await collect(options['--repo'] || '', Number(options['--pr']));
     if (options['--save-snapshot']) writePrivate(options['--save-snapshot'], JSON.stringify(snapshot, null, 2) + '\n');
     const report = analyze(snapshot);
     const output = format === 'json' ? JSON.stringify(report, null, 2) + '\n' :

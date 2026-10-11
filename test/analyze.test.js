@@ -147,12 +147,12 @@ test('HTML output escapes repository, context, evidence and unsafe links', () =>
   assert.ok(!output.includes('<script>alert(1)</script>'));
   assert.ok(!output.includes('href="javascript:'));
 });
-test('invalid repository input causes no request', () => {
+test('invalid repository input causes no request', async () => {
   let requests = 0;
-  assert.throws(() => collect('x/y;echo bad', 1, () => {requests++;}), /OWNER\/REPO/);
+  await assert.rejects(() => collect('x/y;echo bad', 1, () => {requests++;}), /OWNER\/REPO/);
   assert.equal(requests, 0);
 });
-test('collector handles API failures without ever making mutation calls', () => {
+test('collector handles API failures without ever making mutation calls', async () => {
   const calls = [];
   const request = (endpoint, input) => {
     calls.push({endpoint, input});
@@ -163,7 +163,7 @@ test('collector handles API failures without ever making mutation calls', () => 
     }};
     return {available: false, error: 'HTTP 403'};
   };
-  const report = analyze(collect('example/acme-widget', 42, request));
+  const report = analyze(await collect('example/acme-widget', 42, request));
   assert.equal(report.overall, 'unknown');
   assert.ok(calls.every(call => !call.input || call.endpoint === 'graphql' && call.input.query.startsWith('query(')));
 });
@@ -188,21 +188,21 @@ test('draft context is visible without treating a missing result as a failed job
   assert.ok(report.limitations.some(note => note.includes('not a failed job')));
   assert.ok(html(report).includes('<strong>Draft PR</strong>'));
 });
-test('missing required classic-check parameters remain unknown', () => {
+test('missing required classic-check parameters remain unknown', async () => {
   const request = endpoint => {
     if (endpoint.endsWith('/pulls/42')) return {available: true, data: {state: 'open', head: {sha: 'head', ref: 'topic', repo: {full_name: 'x/y'}}, base: {sha: 'base', ref: 'main', repo: {full_name: 'x/y', html_url: 'https://github.com/x/y'}}, changed_files: 0}};
     if (endpoint === 'graphql') return {available: true, data: {data: {repository: {pullRequest: {baseRef: {branchProtectionRule: {requiresStatusChecks: true}}}}}}};
     return {available: false, error: 'Unavailable'};
   };
-  assert.equal(collect('x/y', 42, request).classic.available, false);
+  assert.equal((await collect('x/y', 42, request)).classic.available, false);
 });
-test('missing ruleset-check parameters remain unknown', () => {
+test('missing ruleset-check parameters remain unknown', async () => {
   const request = endpoint => {
     if (endpoint.endsWith('/pulls/42')) return {available: true, data: {state: 'open', head: {sha: 'head', ref: 'topic', repo: {full_name: 'x/y'}}, base: {sha: 'base', ref: 'main', repo: {full_name: 'x/y', html_url: 'https://github.com/x/y'}}, changed_files: 0}};
     if (endpoint.includes('/rules/branches/')) return {available: true, data: [{type: 'required_status_checks'}]};
     return {available: false, error: 'Unavailable'};
   };
-  assert.equal(collect('x/y', 42, request).rulesets.available, false);
+  assert.equal((await collect('x/y', 42, request)).rulesets.available, false);
 });
 function collectorFixture(overrides = {}) {
   return endpoint => {
@@ -215,25 +215,25 @@ function collectorFixture(overrides = {}) {
     return {available: true, data: []};
   };
 }
-test('a null classic rule on a protected branch cannot become a confident no-requirements verdict', () => {
-  const s = collect('x/y', 42, collectorFixture()); assert.equal(s.classic.available, false); assert.equal(analyze(s).overall, 'unknown');
-  const unprotected = collect('x/y', 42, collectorFixture({protected: false})); assert.equal(unprotected.classic.available, true); assert.equal(analyze(unprotected).overall, 'none');
+test('a null classic rule on a protected branch cannot become a confident no-requirements verdict', async () => {
+  const s = await collect('x/y', 42, collectorFixture()); assert.equal(s.classic.available, false); assert.equal(analyze(s).overall, 'unknown');
+  const unprotected = await collect('x/y', 42, collectorFixture({protected: false})); assert.equal(unprotected.classic.available, true); assert.equal(analyze(unprotected).overall, 'none');
 });
-test('without admin access, classic required checks come from the branch summary', () => {
+test('without admin access, classic required checks come from the branch summary', async () => {
   // GraphQL hides the classic rule from read-only tokens; the branch summary still lists its checks (cli/cli shape).
-  const s = collect('x/y', 42, collectorFixture({protection: {enabled: true, required_status_checks: {enforcement_level: 'non_admins', contexts: ['build'], checks: [{context: 'build', app_id: null}]}}}));
+  const s = await collect('x/y', 42, collectorFixture({protection: {enabled: true, required_status_checks: {enforcement_level: 'non_admins', contexts: ['build'], checks: [{context: 'build', app_id: null}]}}}));
   assert.equal(s.classic.available, true); assert.deepEqual(s.classic.checks.map(check => [check.context, check.appId]), [['build', null]]);
   assert.equal(s.branchFreshness.available, false); assert.match(s.branchFreshness.error, /admin access/);
   const report = analyze(s); assert.equal(report.checks[0].code, 'required_check_missing'); assert.equal(report.overall, 'blocked');
   // A branch protected only by rulesets reports classic protection as disabled (vercel/next.js shape).
-  const rulesetsOnly = collect('x/y', 42, collectorFixture({protection: {enabled: false, required_status_checks: {enforcement_level: 'off', contexts: [], checks: []}}}));
+  const rulesetsOnly = await collect('x/y', 42, collectorFixture({protection: {enabled: false, required_status_checks: {enforcement_level: 'off', contexts: [], checks: []}}}));
   assert.equal(rulesetsOnly.classic.available, true); assert.deepEqual(rulesetsOnly.classic.checks, []); assert.equal(analyze(rulesetsOnly).overall, 'none');
-  const malformed = collect('x/y', 42, collectorFixture({protection: {enabled: true, required_status_checks: {enforcement_level: 'everyone'}}}));
+  const malformed = await collect('x/y', 42, collectorFixture({protection: {enabled: true, required_status_checks: {enforcement_level: 'everyone'}}}));
   assert.equal(malformed.classic.available, false);
 });
-test('an unknown or conflicting mergeability cannot use a stale merge SHA', () => {
+test('an unknown or conflicting mergeability cannot use a stale merge SHA', async () => {
   for (const mergeable of [null, false]) {
-    const s = collect('x/y', 42, collectorFixture({mergeable, protected: false}));
+    const s = await collect('x/y', 42, collectorFixture({mergeable, protected: false}));
     assert.equal(s.pr.mergeSha, null); assert.equal(s.mergeChecks.available, false); assert.equal(analyze(s).overall, 'unknown');
   }
 });
@@ -243,7 +243,7 @@ test('strict up-to-date requirements block a behind branch and remain unknown if
   s.branchFreshness.behindBy = 0; assert.equal(analyze(s).overall, 'satisfied');
   s.branchFreshness.available = false; assert.equal(analyze(s).overall, 'unknown');
 });
-test('collector preserves strict up-to-date check policies from both sources', () => {
+test('collector preserves strict up-to-date check policies from both sources', async () => {
   for (const source of ['classic', 'rulesets']) {
     const base = collectorFixture({protected: false});
     const comparisons = [];
@@ -253,11 +253,11 @@ test('collector preserves strict up-to-date check policies from both sources', (
       if (endpoint.includes('/compare/')) {comparisons.push(endpoint); return {available: true, data: {behind_by: 3}};}
       return base(endpoint);
     };
-    const s = collect('x/y', 42, request); assert.deepEqual(s.branchFreshness, {required: true, available: true, baseTipSha: 'current-base-tip', behindBy: 3});
+    const s = await collect('x/y', 42, request); assert.deepEqual(s.branchFreshness, {required: true, available: true, baseTipSha: 'current-base-tip', behindBy: 3});
     assert.deepEqual(comparisons, ['repos/x/y/compare/current-base-tip...head']);
   }
 });
-test('an unreadable current base tip cannot produce a strict-policy pass', () => {
+test('an unreadable current base tip cannot produce a strict-policy pass', async () => {
   const base = collectorFixture({protected: false});
   const comparisons = [];
   const request = endpoint => {
@@ -267,12 +267,12 @@ test('an unreadable current base tip cannot produce a strict-policy pass', () =>
     if (endpoint.includes('/compare/')) {comparisons.push(endpoint); return {available: true, data: {behind_by: 0}};}
     return base(endpoint);
   };
-  const s = collect('x/y', 42, request); assert.equal(s.branchFreshness.available, false); assert.equal(analyze(s).overall, 'unknown');
+  const s = await collect('x/y', 42, request); assert.equal(s.branchFreshness.available, false); assert.equal(analyze(s).overall, 'unknown');
   assert.equal(s.classic.available, true); assert.deepEqual(comparisons, []);
 });
-test('organization rulesets do not invent a repository-specific rule URL', () => {
+test('organization rulesets do not invent a repository-specific rule URL', async () => {
   const base = collectorFixture();
-  const s = collect('x/y', 42, endpoint => endpoint.includes('/rules/branches/') ? {available: true, data: [{type: 'required_status_checks', ruleset_source_type: 'Organization', ruleset_source: 'x', ruleset_id: 99, parameters: {required_status_checks: [{context: 'build'}]}}]} : base(endpoint));
+  const s = await collect('x/y', 42, endpoint => endpoint.includes('/rules/branches/') ? {available: true, data: [{type: 'required_status_checks', ruleset_source_type: 'Organization', ruleset_source: 'x', ruleset_id: 99, parameters: {required_status_checks: [{context: 'build'}]}}]} : base(endpoint));
   assert.equal(s.rulesets.checks[0].url, null); assert.equal(analyze(s).checks[0].evidence[0].url, null);
 });
 test('captured Next.js required-check failure agrees with the live comparator evidence', () => {
