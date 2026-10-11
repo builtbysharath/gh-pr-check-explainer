@@ -231,6 +231,13 @@ test('without admin access, classic required checks come from the branch summary
   const malformed = await collect('x/y', 42, collectorFixture({protection: {enabled: true, required_status_checks: {enforcement_level: 'everyone'}}}));
   assert.equal(malformed.classic.available, false);
 });
+test('workflow tokens get a GraphQL error instead of the classic rule, and still use the branch summary', async () => {
+  // GITHUB_TOKEN gets branchProtectionRule: null with a FORBIDDEN error ("Resource not accessible by integration").
+  const base = collectorFixture({protection: {enabled: true, required_status_checks: {enforcement_level: 'non_admins', contexts: ['build'], checks: [{context: 'build', app_id: null}]}}});
+  const s = await collect('x/y', 42, endpoint => endpoint === 'graphql' ? {available: false, error: 'GitHub GraphQL did not return a complete result.'} : base(endpoint));
+  assert.equal(s.classic.available, true); assert.deepEqual(s.classic.checks.map(check => check.context), ['build']);
+  assert.equal(analyze(s).checks[0].code, 'required_check_missing');
+});
 test('an unknown or conflicting mergeability cannot use a stale merge SHA', async () => {
   for (const mergeable of [null, false]) {
     const s = await collect('x/y', 42, collectorFixture({mergeable, protected: false}));

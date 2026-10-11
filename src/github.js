@@ -88,33 +88,25 @@ export async function collect(repository, number, request = ghRequest) {
   const pr = pull.data;
   if (pr.state !== 'open') throw new Error('Live diagnosis supports open pull requests; use a captured snapshot for closed examples.');
   const classicResult = await request('graphql', {query: QUERY, variables: {owner, repo, number}});
+  const rule = classicResult.available ? classicResult.data?.data?.repository?.pullRequest?.baseRef?.branchProtectionRule : null;
+  const classicCheck = (context, appId) => ({context, appId: appId || null, source: 'classic branch protection', url: pr.base.repo.html_url + '/settings/branches'});
   let classic;
-  const baseRef = classicResult.data?.data?.repository?.pullRequest?.baseRef;
-  if (!classicResult.available || !baseRef) classic = {available: false, error: classicResult.error || 'Base branch policy was not returned.'};
-  else {
-    const rule = baseRef.branchProtectionRule;
-    const branch = !rule ? await request(root + '/branches/' + endpointPart(pr.base.ref)) : null;
-    // GraphQL hides the classic rule from tokens without admin access, but the
-    // branch summary still lists its required checks (not its strict policy).
-    const summary = !rule && Object.hasOwn(baseRef, 'branchProtectionRule') && branch?.available && branch.data.protected === true ?
-      branch.data.protection : null;
+  if (rule) {
+    classic = rule.requiresStatusChecks && !Array.isArray(rule.requiredStatusChecks) ? {available: false, error: 'Required classic checks were not returned.'} :
+      {available: true, strict: rule.requiresStatusChecks ? rule.requiresStrictStatusChecks : false,
+        checks: rule.requiresStatusChecks ? rule.requiredStatusChecks.map(check => classicCheck(check.context, check.app?.databaseId)) : []};
+  } else {
+    // GraphQL hides the classic rule from tokens without admin access: people
+    // get null, and app and workflow tokens get a FORBIDDEN error. The branch
+    // summary still lists its required checks, though not its strict policy.
+    const branch = await request(root + '/branches/' + endpointPart(pr.base.ref));
+    const summary = branch.available && branch.data.protected === true ? branch.data.protection : null;
     const summaryChecks = summary?.required_status_checks;
-    if (summary) classic = summary.enabled === false || summary.enabled === true && summaryChecks?.enforcement_level === 'off' ?
-      {available: true, strict: false, checks: []} :
-      summary.enabled === true && Array.isArray(summaryChecks?.checks) ?
-      {available: true, strict: undefined, fromSummary: true, checks: summaryChecks.checks.map(check => ({
-        context: check.context, appId: check.app_id || null,
-        source: 'classic branch protection', url: pr.base.repo.html_url + '/settings/branches'
-      }))} :
-      {available: false, error: 'The base branch summary did not return its classic required checks.'};
-    else classic = !rule && (!Object.hasOwn(baseRef, 'branchProtectionRule') || !branch?.available || branch.data.protected !== false) ?
-      {available: false, error: 'No classic rule was returned; the base branch is protected or its protection state could not be confirmed.'} :
-      rule?.requiresStatusChecks && !Array.isArray(rule.requiredStatusChecks) ?
-      {available: false, error: 'Required classic checks were not returned.'} :
-      {available: true, strict: rule?.requiresStatusChecks ? rule.requiresStrictStatusChecks : false, checks: rule?.requiresStatusChecks ? rule.requiredStatusChecks.map(check => ({
-      context: check.context, appId: check.app?.databaseId || null,
-      source: 'classic branch protection', url: pr.base.repo.html_url + '/settings/branches'
-    })) : []};
+    classic = branch.available && branch.data.protected === false ||
+      summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === 'off' ? {available: true, strict: false, checks: []} :
+      summary?.enabled === true && Array.isArray(summaryChecks?.checks) ?
+      {available: true, strict: undefined, fromSummary: true, checks: summaryChecks.checks.map(check => classicCheck(check.context, check.app_id))} :
+      {available: false, error: 'No classic rule was returned; the base branch is protected or its protection state could not be confirmed.'};
   }
   const rulesResult = await pages(request, root + '/rules/branches/' + endpointPart(pr.base.ref));
   const malformedRule = rulesResult.available && rulesResult.data.some(rule =>

@@ -10,14 +10,17 @@ import {fetchRequest, run} from '../src/action.js';
 const WORKFLOW = "name: Build\non:\n  pull_request:\n    paths:\n      - 'src/**'\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n";
 
 // A fake GitHub API for a docs-only PR whose required `build` check comes from a workflow filtered to src/**.
-function github({files = ['README.md', 'docs/setup.md'], comments = [], commentStatus = 201} = {}) {
+function github({files = ['README.md', 'docs/setup.md'], comments = [], commentStatus = 201, classic = false} = {}) {
   const calls = [];
   const routes = {
     'repos/x/y/pulls/42': {state: 'open', mergeable: true, merge_commit_sha: 'merge', changed_files: files.length, html_url: 'https://github.com/x/y/pull/42',
       head: {sha: 'head', ref: 'topic', repo: {full_name: 'x/y'}}, base: {sha: 'base', ref: 'main', repo: {full_name: 'x/y', html_url: 'https://github.com/x/y'}}},
-    'graphql': {data: {repository: {pullRequest: {baseRef: {branchProtectionRule: null}}}}},
-    'repos/x/y/branches/main': {protected: true, protection: {enabled: false, required_status_checks: {enforcement_level: 'off', contexts: [], checks: []}}, commit: {sha: 'base'}},
-    'repos/x/y/rules/branches/main': [{type: 'required_status_checks', ruleset_id: 7, parameters: {strict_required_status_checks_policy: false, required_status_checks: [{context: 'build'}]}}],
+    // What GITHUB_TOKEN gets: the classic rule is hidden behind a FORBIDDEN error.
+    'graphql': {data: {repository: {pullRequest: {baseRef: {branchProtectionRule: null}}}}, errors: [{type: 'FORBIDDEN', message: 'Resource not accessible by integration'}]},
+    'repos/x/y/branches/main': {protected: true, commit: {sha: 'base'}, protection: classic ?
+      {enabled: true, required_status_checks: {enforcement_level: 'non_admins', contexts: ['build'], checks: [{context: 'build', app_id: null}]}} :
+      {enabled: false, required_status_checks: {enforcement_level: 'off', contexts: [], checks: []}}},
+    'repos/x/y/rules/branches/main': classic ? [] : [{type: 'required_status_checks', ruleset_id: 7, parameters: {strict_required_status_checks_policy: false, required_status_checks: [{context: 'build'}]}}],
     'repos/x/y/pulls/42/files': files.map(filename => ({filename})),
     'repos/x/y/pulls/42/commits': [{sha: 'head'}],
     'repos/x/y/contents/.github/workflows': [{type: 'file', name: 'build.yml', path: '.github/workflows/build.yml'}],
@@ -83,6 +86,13 @@ test('a required check skipped by a path filter gets a summary, outputs and one 
   w.cleanup();
 });
 
+test('a check required only by classic branch protection is found with the workflow token', async () => {
+  const api = github({classic: true}), w = workspace();
+  await run({env: w.env, fetchImpl: api.fetchImpl, log: () => {}});
+  assert.match(w.read('output'), /stuck-checks=\["build"\]/);
+  assert.ok(api.calls.some(call => call.endpoint === 'repos/x/y/branches/main'));
+  w.cleanup();
+});
 test('the existing comment is updated in place, and marked resolved once nothing is stuck', async () => {
   const existing = {id: 9, body: '<!-- gh-pr-check-explainer -->\nold'};
   let api = github({comments: [{id: 3, body: 'someone else'}, existing]}), w = workspace();

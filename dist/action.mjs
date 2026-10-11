@@ -9526,39 +9526,33 @@ async function collect(repository, number, request = ghRequest) {
   const pr = pull.data;
   if (pr.state !== "open") throw new Error("Live diagnosis supports open pull requests; use a captured snapshot for closed examples.");
   const classicResult = await request("graphql", { query: QUERY, variables: { owner, repo, number } });
+  const rule = classicResult.available ? classicResult.data?.data?.repository?.pullRequest?.baseRef?.branchProtectionRule : null;
+  const classicCheck = (context, appId) => ({ context, appId: appId || null, source: "classic branch protection", url: pr.base.repo.html_url + "/settings/branches" });
   let classic;
-  const baseRef = classicResult.data?.data?.repository?.pullRequest?.baseRef;
-  if (!classicResult.available || !baseRef) classic = { available: false, error: classicResult.error || "Base branch policy was not returned." };
-  else {
-    const rule = baseRef.branchProtectionRule;
-    const branch = !rule ? await request(root + "/branches/" + endpointPart(pr.base.ref)) : null;
-    const summary = !rule && Object.hasOwn(baseRef, "branchProtectionRule") && branch?.available && branch.data.protected === true ? branch.data.protection : null;
+  if (rule) {
+    classic = rule.requiresStatusChecks && !Array.isArray(rule.requiredStatusChecks) ? { available: false, error: "Required classic checks were not returned." } : {
+      available: true,
+      strict: rule.requiresStatusChecks ? rule.requiresStrictStatusChecks : false,
+      checks: rule.requiresStatusChecks ? rule.requiredStatusChecks.map((check) => classicCheck(check.context, check.app?.databaseId)) : []
+    };
+  } else {
+    const branch = await request(root + "/branches/" + endpointPart(pr.base.ref));
+    const summary = branch.available && branch.data.protected === true ? branch.data.protection : null;
     const summaryChecks = summary?.required_status_checks;
-    if (summary) classic = summary.enabled === false || summary.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => ({
-      context: check.context,
-      appId: check.app_id || null,
-      source: "classic branch protection",
-      url: pr.base.repo.html_url + "/settings/branches"
-    })) } : { available: false, error: "The base branch summary did not return its classic required checks." };
-    else classic = !rule && (!Object.hasOwn(baseRef, "branchProtectionRule") || !branch?.available || branch.data.protected !== false) ? { available: false, error: "No classic rule was returned; the base branch is protected or its protection state could not be confirmed." } : rule?.requiresStatusChecks && !Array.isArray(rule.requiredStatusChecks) ? { available: false, error: "Required classic checks were not returned." } : { available: true, strict: rule?.requiresStatusChecks ? rule.requiresStrictStatusChecks : false, checks: rule?.requiresStatusChecks ? rule.requiredStatusChecks.map((check) => ({
-      context: check.context,
-      appId: check.app?.databaseId || null,
-      source: "classic branch protection",
-      url: pr.base.repo.html_url + "/settings/branches"
-    })) : [] };
+    classic = branch.available && branch.data.protected === false || summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary?.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => classicCheck(check.context, check.app_id)) } : { available: false, error: "No classic rule was returned; the base branch is protected or its protection state could not be confirmed." };
   }
   const rulesResult = await pages(request, root + "/rules/branches/" + endpointPart(pr.base.ref));
-  const malformedRule = rulesResult.available && rulesResult.data.some((rule) => rule.type === "required_status_checks" && !Array.isArray(rule.parameters?.required_status_checks));
-  const rulesets = malformedRule ? { available: false, error: "A required-check rule did not return its checks." } : rulesResult.available ? { available: true, checks: rulesResult.data.filter((rule) => rule.type === "required_status_checks").flatMap((rule) => (rule.parameters?.required_status_checks || []).map((check) => ({
+  const malformedRule = rulesResult.available && rulesResult.data.some((rule2) => rule2.type === "required_status_checks" && !Array.isArray(rule2.parameters?.required_status_checks));
+  const rulesets = malformedRule ? { available: false, error: "A required-check rule did not return its checks." } : rulesResult.available ? { available: true, checks: rulesResult.data.filter((rule2) => rule2.type === "required_status_checks").flatMap((rule2) => (rule2.parameters?.required_status_checks || []).map((check) => ({
     context: check.context,
     appId: check.integration_id || null,
-    source: (rule.ruleset_source || repository) + " ruleset " + rule.ruleset_id,
-    sourceType: rule.ruleset_source_type || "Repository",
-    url: !rule.ruleset_source_type || rule.ruleset_source_type === "Repository" ? "https://github.com/" + (rule.ruleset_source || repository) + "/rules/" + rule.ruleset_id : null
+    source: (rule2.ruleset_source || repository) + " ruleset " + rule2.ruleset_id,
+    sourceType: rule2.ruleset_source_type || "Repository",
+    url: !rule2.ruleset_source_type || rule2.ruleset_source_type === "Repository" ? "https://github.com/" + (rule2.ruleset_source || repository) + "/rules/" + rule2.ruleset_id : null
   }))) } : rulesResult;
-  const statusRules = rulesResult.available ? rulesResult.data.filter((rule) => rule.type === "required_status_checks") : [];
-  const strictUnknown = classic.available && classic.checks.length > 0 && typeof classic.strict !== "boolean" || statusRules.some((rule) => typeof rule.parameters?.strict_required_status_checks_policy !== "boolean");
-  const strict = classic.strict === true || statusRules.some((rule) => rule.parameters?.strict_required_status_checks_policy === true);
+  const statusRules = rulesResult.available ? rulesResult.data.filter((rule2) => rule2.type === "required_status_checks") : [];
+  const strictUnknown = classic.available && classic.checks.length > 0 && typeof classic.strict !== "boolean" || statusRules.some((rule2) => typeof rule2.parameters?.strict_required_status_checks_policy !== "boolean");
+  const strict = classic.strict === true || statusRules.some((rule2) => rule2.parameters?.strict_required_status_checks_policy === true);
   let branchFreshness = { required: strict, available: !strictUnknown, behindBy: 0 };
   if (strictUnknown) branchFreshness = { required: strict, available: false, error: classic.fromSummary ? "Without admin access, GitHub does not show whether classic branch protection requires an up-to-date branch." : "The strict up-to-date check policy was not fully returned." };
   if (strict) {
