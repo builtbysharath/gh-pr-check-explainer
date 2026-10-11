@@ -98,3 +98,13 @@ test('CLI exit codes reflect checks and evidence is retained when analysis fails
     if (process.platform !== 'win32') assert.equal(statSync(saved).mode & 0o777, 0o600);
   } finally {rmSync(dir, {recursive: true});}
 });
+
+test('gh extension entry runs the committed bundle with the same reports as the source CLI', {skip: process.platform === 'win32'}, () => {
+  for (const format of ['json', 'markdown', 'html']) {
+    const args = ['--snapshot', 'examples/path-filter.json', '--format', format];
+    const source = spawnSync(process.execPath, ['bin/gh-pr-check-explainer.js', ...args], {encoding: 'utf8'});
+    const extension = spawnSync('./gh-pr-check-explainer', args, {encoding: 'utf8'});
+    assert.equal(extension.status, 1, extension.stderr);
+    assert.equal(extension.stdout, source.stdout);
+  }
+});

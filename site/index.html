@@ -30,13 +30,12 @@
       <a class="report-image" href="./sample-report.html" aria-label="Open the fictional path-filter report"><img src="./demo.jpg" width="1108" height="933" alt="Fictional report showing a blocked build requirement and a path filter excluding both changed files." loading="lazy"></a>
     </section>
     <section id="try" class="try" aria-labelledby="try-title">
-      <p class="eyebrow">RUN IT ON YOUR OWN COMPUTER</p><h2 id="try-title">One command. Your existing GitHub access.</h2><p>Install Node 22+ and sign in with <a href="https://cli.github.com/">GitHub CLI</a>. Replace <code>OWNER/REPO</code> and <code>NUMBER</code> below.</p>
-      <pre><code id="install-command">npm exec --yes \
-  --package=https://github.com/builtbysharath/gh-pr-check-explainer/releases/download/v0.1.0/gh-pr-check-explainer-0.1.0.tgz \
-  -- gh-pr-check-explainer --repo OWNER/REPO --pr NUMBER</code></pre>
+      <p class="eyebrow">RUN IT ON YOUR OWN COMPUTER</p><h2 id="try-title">Install once, then paste a PR link.</h2><p>Install Node 22+ and sign in with <a href="https://cli.github.com/">GitHub CLI</a>. Replace <code>OWNER/REPO</code> and <code>NUMBER</code> below.</p>
+      <pre><code id="install-command">gh extension install builtbysharath/gh-pr-check-explainer
+gh pr-check-explainer https://github.com/OWNER/REPO/pull/NUMBER</code></pre>
       <button type="button" class="button" data-copy-target="install-command" data-copy-status="command-copy-status" aria-describedby="command-copy-status">Copy command</button><p id="command-copy-status" class="quiet copy-status" role="status" aria-live="polite"></p>
       <p class="quiet">You can also select the command and copy it manually.</p>
-      <p class="quiet">npm downloads the pinned GitHub release and its dependencies. The CLI reads GitHub using your existing <code>gh</code> access. It never posts comments, reruns workflows or changes policy.</p><p><a href="https://github.com/builtbysharath/gh-pr-check-explainer#readme">Full quick start and report export ↗</a></p>
+      <p class="quiet">The GitHub CLI extension runs a committed single-file build of the MIT-licensed source. It reads GitHub using your existing <code>gh</code> access. It never posts comments, reruns workflows or changes policy.</p><p><a href="https://github.com/builtbysharath/gh-pr-check-explainer#readme">Install without gh extensions, and report export ↗</a></p>
     </section>
     <section class="questions" aria-labelledby="questions-title">
       <p class="eyebrow">BEFORE YOU RELY ON A RESULT</p><h2 id="questions-title">What does the verdict cover?</h2>

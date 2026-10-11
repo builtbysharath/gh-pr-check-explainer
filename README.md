@@ -14,13 +14,22 @@ PR Check Explainer is a read-only CLI for developers troubleshooting GitHub requ
 
 ## Try it on a pull request
 
-Requires **Node 22+** and [GitHub CLI](https://cli.github.com/) signed in with access to the repository. Run the pinned release without cloning or installing globally:
+Requires **Node 22+** and [GitHub CLI](https://cli.github.com/) signed in with access to the repository. Install it as a GitHub CLI extension, then paste a PR link:
 
 ```sh
-npm exec --yes --package=https://github.com/builtbysharath/gh-pr-check-explainer/releases/download/v0.1.0/gh-pr-check-explainer-0.1.0.tgz -- gh-pr-check-explainer --repo OWNER/REPO --pr NUMBER
+gh extension install builtbysharath/gh-pr-check-explainer
+gh pr-check-explainer https://github.com/OWNER/REPO/pull/NUMBER
 ```
 
-npm downloads the GitHub release package and its dependencies. The tool uses your existing `gh` access to read GitHub data. It does not rerun workflows, post comments or change repository settings. The package is not published to the npm registry.
+The extension runs a committed single-file build of this source (`dist/`, rebuilt and compared in CI), so there is no npm install step. It follows `main`; add `--pin v0.2.0` to stay on a release. Update with `gh extension upgrade pr-check-explainer` or remove with `gh extension remove pr-check-explainer`. The tool uses your existing `gh` access to read GitHub data. It does not rerun workflows, post comments or change repository settings.
+
+Prefer not to install anything? Run the pinned release once through npm:
+
+```sh
+npm exec --yes --package=https://github.com/builtbysharath/gh-pr-check-explainer/releases/download/v0.2.0/gh-pr-check-explainer-0.2.0.tgz -- gh-pr-check-explainer https://github.com/OWNER/REPO/pull/NUMBER
+```
+
+npm downloads the GitHub release package and its dependencies. The package is not published to the npm registry.
 
 Prefer a checkout, or want the fictional sample?
 
@@ -44,13 +53,13 @@ The sample intentionally exits `1` because a required check is blocked.
 node bin/gh-pr-check-explainer.js --repo OWNER/REPO --pr NUMBER --format html --output report.html --save-snapshot evidence.json
 ```
 
-From the current source checkout, you can also pass a standard PR URL:
+You can also pass a standard PR URL:
 
 ```sh
 node bin/gh-pr-check-explainer.js https://github.com/OWNER/REPO/pull/NUMBER --format html --output report.html
 ```
 
-Use either the URL or `--repo`/`--pr`; a URL cannot be combined with those options or `--snapshot`. The pinned 0.1.0 release above retains its original flag-based interface.
+Use either the URL or `--repo`/`--pr`; a URL cannot be combined with those options or `--snapshot`.
 
 Snapshots and reports can contain private workflow contents. Review them before sharing. HTML reports include a fixed local copy helper permitted by a CSP hash and no remote assets. Copy Markdown provides success or failure feedback; manual text selection remains available if clipboard access is unavailable.
 

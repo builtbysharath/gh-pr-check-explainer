@@ -1,0 +1,10 @@
+#!/bin/sh
+# Entry point for `gh pr-check-explainer`. gh clones this repository without
+# installing npm dependencies, so this runs the committed bundle in dist/.
+set -e
+if ! command -v node >/dev/null 2>&1 || ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then
+  echo 'PR Check Explainer: Node.js 22 or newer is required. Install it from https://nodejs.org/' >&2
+  exit 2
+fi
+dir=$(cd "$(dirname "$0")" && pwd -P)
+exec node "$dir/dist/gh-pr-check-explainer.mjs" "$@"
