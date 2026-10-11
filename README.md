@@ -42,6 +42,39 @@ node bin/gh-pr-check-explainer.js --snapshot examples/path-filter.json
 
 The sample intentionally exits `1` because a required check is blocked.
 
+## Run it on every pull request (GitHub Action)
+
+Add this workflow as `.github/workflows/explain-required-checks.yml`. Give it no `paths` or `branches` filter, so it runs on every pull request:
+
+```yaml
+name: Explain required checks
+on:
+  pull_request:
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: write
+jobs:
+  explain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: builtbysharath/gh-pr-check-explainer@v0
+```
+
+When a required check can't report because of configuration, the action posts one comment on the pull request with the check, the cause and a fix, and updates that comment on later pushes. Causes it recognizes: a `paths` or `branches` filter that skips the workflow, a workflow with no pull request event, a job the pull request renames or removes, a check from a different GitHub App than the rule requires, and a result from an event that can't satisfy a pull request requirement. Checks that are queued or still running aren't reported. Every run writes the full report to the job summary.
+
+| Input | Default | Use |
+|---|---|---|
+| `github-token` | `${{ github.token }}` | Token for the read-only requests and the comment |
+| `comment` | `true` | `false` keeps the report in the job summary only |
+| `fail-on-stuck` | `false` | `true` fails the job when a required check won't report |
+
+Outputs: `verdict` (`blocked`, `unknown`, `satisfied` or `none`) and `stuck-checks` (a JSON array of check names).
+
+Apart from that one comment, the action only reads. The workflow token has no admin access, so classic branch protection is read from the branch summary, which doesn't say whether branches must be up to date. On `pull_request`, pull requests from forks get a read-only token: the action then skips the comment with a warning, and the job summary still has the report.
+
 ## What you get
 
 - **Named missing checks**, including requirements that have no result to list.

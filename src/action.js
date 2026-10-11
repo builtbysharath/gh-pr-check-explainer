@@ -59,7 +59,7 @@ export function commentBody(report, stuck) {
     return '| `' + cell(check.context) + '` | ' + cell(STUCK[check.cause].why + (reasons.length ? ' ' + reasons.join(' ') : '')) + where + ' | ' + cell(STUCK[check.cause].fix) + ' |';
   });
   return [MARKER, '### Required checks that will not report', '',
-    'GitHub shows these as "Expected — Waiting for status to be reported". They will not arrive for ' + report.headSha + ' as the configuration stands.', '',
+    'GitHub shows these as "Waiting for status to be reported". They will not arrive for ' + report.headSha + ' as the configuration stands.', '',
     '| Required check | Why | Fix |', '|---|---|---|', ...rows, '',
     '[GitHub troubleshooting guide](' + DOCS + ') · Read-only diagnosis by [PR Check Explainer](https://github.com/builtbysharath/gh-pr-check-explainer). This comment updates on each push.', ''].join('\n');
 }

@@ -9727,7 +9727,7 @@ function commentBody(report, stuck) {
     MARKER,
     "### Required checks that will not report",
     "",
-    'GitHub shows these as "Expected \u2014 Waiting for status to be reported". They will not arrive for ' + report.headSha + " as the configuration stands.",
+    'GitHub shows these as "Waiting for status to be reported". They will not arrive for ' + report.headSha + " as the configuration stands.",
     "",
     "| Required check | Why | Fix |",
     "|---|---|---|",

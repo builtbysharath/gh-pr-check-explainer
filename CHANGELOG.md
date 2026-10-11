@@ -2,8 +2,10 @@
 
 ## Unreleased
 
+- GitHub Action: `uses: builtbysharath/gh-pr-check-explainer@v0` on `pull_request` writes the report to the job summary and posts one PR comment, kept up to date, when a required check can't report because of configuration. Outputs `verdict` and `stuck-checks`; `fail-on-stuck` can fail the job. Tested end to end on a repository with a classic-protection check and a ruleset check, both from path-filtered workflows.
+- Read the classic rule from the branch summary for workflow and app tokens too, which get a GraphQL error instead of null.
 - Diagnose classic branch protection without admin access. GitHub's GraphQL API hides the classic rule from read-only tokens, so contributors got an "unknown" verdict. The required checks now come from the base branch summary, which any reader can see. That summary does not say whether the branch must be up to date, so that part stays unknown.
-- JSON reports give each required check a `cause` when configuration explains a missing or ineligible result (`workflow_filtered`, `workflow_has_no_pr_event`, `job_removed_or_renamed`, `wrong_reporting_app`, `ineligible_workflow_event`). It is set even when `code` reports an older passing commit first, as in a docs-only follow-up commit that a path filter skips.
+- JSON reports give each required check a `cause` when configuration explains a missing or ineligible result (`workflow_filtered`, `workflow_has_no_pr_event`, `job_removed_or_renamed`, `wrong_reporting_app`, `ineligible_workflow_event`). It is set even when `code` reports an older passing commit first, as when a PR's changes become docs-only after CI passed (for example by reverting a source change), so a path filter now skips the workflow.
 
 ## 0.2.0: GitHub CLI extension, 2026-10-11
 

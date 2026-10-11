@@ -96,7 +96,7 @@ test('a pending commit status still blocks a same-named passing check', () => {
 test('a passing check on the previous commit does not satisfy the current commit', () => {
   const s = fresh(); s.previousChecks.data = [{name: 'build', sha: 'old', appId: 15368, conclusion: 'success'}];
   assert.equal(analyze(s).checks[0].code, 'passed_on_other_commit');
-  // A docs-only follow-up commit: the path filter still explains why the new commit has no result.
+  // The PR's changes became docs-only after an earlier commit passed: the path filter still explains the missing result.
   assert.equal(analyze(s).checks[0].cause, 'workflow_filtered');
 });
 test('test-merge results take precedence over head results', () => {
