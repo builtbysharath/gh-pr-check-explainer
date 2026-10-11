@@ -18,5 +18,5 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run check
-      - name: Committed gh extension bundle matches source
+      - name: Committed extension and Action bundles match source
         run: npm run build:extension && git diff --exit-code -- dist

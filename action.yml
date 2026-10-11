@@ -1,0 +1,24 @@
+name: PR Check Explainer
+description: Explain required status checks that will never report on a pull request, such as a CI workflow skipped by a paths filter.
+author: builtbysharath
+branding:
+  icon: check-circle
+  color: blue
+inputs:
+  github-token:
+    description: Token for read-only API requests and the PR comment. Needs contents, actions, checks and statuses read, and pull-requests write to comment.
+    default: ${{ github.token }}
+  comment:
+    description: Post one PR comment when a required check will not report, and keep it updated. Set to false for the job summary only.
+    default: 'true'
+  fail-on-stuck:
+    description: Fail this job when a required check will not report.
+    default: 'false'
+outputs:
+  verdict:
+    description: blocked, unknown, satisfied or none, for the required status checks.
+  stuck-checks:
+    description: JSON array of required check names that will not report as configured.
+runs:
+  using: node24
+  main: dist/action.mjs
