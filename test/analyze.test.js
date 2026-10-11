@@ -206,7 +206,7 @@ function collectorFixture(overrides = {}) {
   return endpoint => {
     if (endpoint.endsWith('/pulls/42')) return {available: true, data: {state: 'open', mergeable: true, merge_commit_sha: 'merge', head: {sha: 'head', ref: 'topic', repo: {full_name: 'x/y'}}, base: {sha: 'base', ref: 'main', repo: {full_name: 'x/y', html_url: 'https://github.com/x/y'}}, changed_files: 0, ...overrides}};
     if (endpoint === 'graphql') return {available: true, data: {data: {repository: {pullRequest: {baseRef: {branchProtectionRule: null}}}}}};
-    if (endpoint.endsWith('/branches/main')) return {available: true, data: {protected: overrides.protected ?? true, commit: {sha: 'current-base-tip'}}};
+    if (endpoint.endsWith('/branches/main')) return {available: true, data: {protected: overrides.protected ?? true, protection: overrides.protection, commit: {sha: 'current-base-tip'}}};
     if (endpoint.includes('/check-runs')) return {available: true, data: {check_runs: []}};
     if (endpoint.includes('/actions/runs')) return {available: true, data: {workflow_runs: []}};
     if (endpoint.includes('/contents/')) return {available: true, data: []};
@@ -216,6 +216,18 @@ function collectorFixture(overrides = {}) {
 test('a null classic rule on a protected branch cannot become a confident no-requirements verdict', () => {
   const s = collect('x/y', 42, collectorFixture()); assert.equal(s.classic.available, false); assert.equal(analyze(s).overall, 'unknown');
   const unprotected = collect('x/y', 42, collectorFixture({protected: false})); assert.equal(unprotected.classic.available, true); assert.equal(analyze(unprotected).overall, 'none');
+});
+test('without admin access, classic required checks come from the branch summary', () => {
+  // GraphQL hides the classic rule from read-only tokens; the branch summary still lists its checks (cli/cli shape).
+  const s = collect('x/y', 42, collectorFixture({protection: {enabled: true, required_status_checks: {enforcement_level: 'non_admins', contexts: ['build'], checks: [{context: 'build', app_id: null}]}}}));
+  assert.equal(s.classic.available, true); assert.deepEqual(s.classic.checks.map(check => [check.context, check.appId]), [['build', null]]);
+  assert.equal(s.branchFreshness.available, false); assert.match(s.branchFreshness.error, /admin access/);
+  const report = analyze(s); assert.equal(report.checks[0].code, 'required_check_missing'); assert.equal(report.overall, 'blocked');
+  // A branch protected only by rulesets reports classic protection as disabled (vercel/next.js shape).
+  const rulesetsOnly = collect('x/y', 42, collectorFixture({protection: {enabled: false, required_status_checks: {enforcement_level: 'off', contexts: [], checks: []}}}));
+  assert.equal(rulesetsOnly.classic.available, true); assert.deepEqual(rulesetsOnly.classic.checks, []); assert.equal(analyze(rulesetsOnly).overall, 'none');
+  const malformed = collect('x/y', 42, collectorFixture({protection: {enabled: true, required_status_checks: {enforcement_level: 'everyone'}}}));
+  assert.equal(malformed.classic.available, false);
 });
 test('an unknown or conflicting mergeability cannot use a stale merge SHA', () => {
   for (const mergeable of [null, false]) {

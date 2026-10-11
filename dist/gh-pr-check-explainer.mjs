@@ -9551,7 +9551,15 @@ function collect(repository, number, request = ghRequest) {
   else {
     const rule = baseRef.branchProtectionRule;
     const branch = !rule ? request(root + "/branches/" + endpointPart(pr.base.ref)) : null;
-    classic = !rule && (!Object.hasOwn(baseRef, "branchProtectionRule") || !branch?.available || branch.data.protected !== false) ? { available: false, error: "No classic rule was returned; the base branch is protected or its protection state could not be confirmed." } : rule?.requiresStatusChecks && !Array.isArray(rule.requiredStatusChecks) ? { available: false, error: "Required classic checks were not returned." } : { available: true, strict: rule?.requiresStatusChecks ? rule.requiresStrictStatusChecks : false, checks: rule?.requiresStatusChecks ? rule.requiredStatusChecks.map((check) => ({
+    const summary = !rule && Object.hasOwn(baseRef, "branchProtectionRule") && branch?.available && branch.data.protected === true ? branch.data.protection : null;
+    const summaryChecks = summary?.required_status_checks;
+    if (summary) classic = summary.enabled === false || summary.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => ({
+      context: check.context,
+      appId: check.app_id || null,
+      source: "classic branch protection",
+      url: pr.base.repo.html_url + "/settings/branches"
+    })) } : { available: false, error: "The base branch summary did not return its classic required checks." };
+    else classic = !rule && (!Object.hasOwn(baseRef, "branchProtectionRule") || !branch?.available || branch.data.protected !== false) ? { available: false, error: "No classic rule was returned; the base branch is protected or its protection state could not be confirmed." } : rule?.requiresStatusChecks && !Array.isArray(rule.requiredStatusChecks) ? { available: false, error: "Required classic checks were not returned." } : { available: true, strict: rule?.requiresStatusChecks ? rule.requiresStrictStatusChecks : false, checks: rule?.requiresStatusChecks ? rule.requiredStatusChecks.map((check) => ({
       context: check.context,
       appId: check.app?.databaseId || null,
       source: "classic branch protection",
@@ -9571,7 +9579,7 @@ function collect(repository, number, request = ghRequest) {
   const strictUnknown = classic.available && classic.checks.length > 0 && typeof classic.strict !== "boolean" || statusRules.some((rule) => typeof rule.parameters?.strict_required_status_checks_policy !== "boolean");
   const strict = classic.strict === true || statusRules.some((rule) => rule.parameters?.strict_required_status_checks_policy === true);
   let branchFreshness = { required: strict, available: !strictUnknown, behindBy: 0 };
-  if (strictUnknown) branchFreshness = { required: strict, available: false, error: "The strict up-to-date check policy was not fully returned." };
+  if (strictUnknown) branchFreshness = { required: strict, available: false, error: classic.fromSummary ? "Without admin access, GitHub does not show whether classic branch protection requires an up-to-date branch." : "The strict up-to-date check policy was not fully returned." };
   if (strict) {
     const branch = request(root + "/branches/" + endpointPart(pr.base.ref));
     const baseTipSha = branch.available && branch.data?.commit?.sha;

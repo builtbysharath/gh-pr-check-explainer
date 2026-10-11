@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Diagnose classic branch protection without admin access. GitHub's GraphQL API hides the classic rule from read-only tokens, so contributors got an "unknown" verdict. The required checks now come from the base branch summary, which any reader can see. That summary does not say whether the branch must be up to date, so that part stays unknown.
+
 ## 0.2.0: GitHub CLI extension, 2026-10-11
 
 - Install with `gh extension install builtbysharath/gh-pr-check-explainer`, then run `gh pr-check-explainer <PR URL>`. The extension runs a committed single-file bundle that CI rebuilds and compares with the source.
