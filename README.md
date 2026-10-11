@@ -102,7 +102,7 @@ Snapshots and reports can contain private workflow contents. Review them before 
 
 ## Where it helps and where it stops
 
-The verdict covers **required status checks**, not every condition for merging. Live mode supports open PRs on GitHub.com. Matrix/reusable-workflow expansion and some complex filter patterns are outside this release's coverage. Missing permissions or ambiguous evidence produce an unknown verdict.
+The verdict covers **required status checks**, not every condition for merging. Live mode supports open PRs on GitHub.com. Matrix job names are expanded as GitHub names them. Matrices built from expressions, reusable workflows and some complex filter patterns are outside this release's coverage. Missing permissions or ambiguous evidence produce an unknown verdict.
 
 [Full coverage and limits](docs/COVERAGE.md) · [Captured comparison with GitHub CLI and gh-x](BENCHMARK.md) · [Validation evidence](VALIDATION.md)
 

@@ -5,6 +5,84 @@ const PASS = new Set(['success', 'neutral', 'skipped']);
 const PR_EVENTS = new Set(['push', 'pull_request', 'pull_request_review', 'pull_request_target', 'deployment', 'deployment_status']);
 const DOCS = 'https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks';
 
+const MAX_MATRIX_JOBS = 256;
+function hasExpression(value) {
+  return typeof value === 'string' ? value.includes('$' + '{{') : Array.isArray(value) ? value.some(hasExpression) :
+    value !== null && typeof value === 'object' && Object.values(value).some(hasExpression);
+}
+function hasNull(value) {
+  return value === null || value === undefined || (typeof value === 'object' && Object.values(value).some(hasNull));
+}
+// GitHub prints the leaf values of each matrix value, in order, in a job's name.
+function leaves(value) {
+  return value !== null && typeof value === 'object' ? Object.values(value).flatMap(leaves) : [String(value)];
+}
+function same(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+// Expands jobs.<id>.strategy.matrix as GitHub does (checked against real check
+// runs in test/matrix.test.js). Each combination keeps the values its job name
+// shows: the matrix's own keys, or every value of an include entry that became
+// a new combination. Returns null when the result can't be predicted.
+function matrixCombinations(matrix) {
+  if (!matrix || typeof matrix !== 'object' || Array.isArray(matrix) || hasExpression(matrix) || hasNull(matrix)) return null;
+  const {include = [], exclude = [], ...axes} = matrix;
+  const keys = Object.keys(axes);
+  if (!Array.isArray(include) || !Array.isArray(exclude) || keys.some(key => !Array.isArray(axes[key]) || !axes[key].length)) return null;
+  if (keys.reduce((count, key) => count * axes[key].length, 1) > MAX_MATRIX_JOBS) return null;
+  let combinations = keys.length ? [{}] : [];
+  for (const key of keys) combinations = combinations.flatMap(combination => axes[key].map(value => ({...combination, [key]: value})));
+  for (const entry of [...include, ...exclude]) if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  combinations = combinations.filter(combination => !exclude.some(entry => Object.entries(entry).every(([key, value]) => same(combination[key], value))));
+  const results = combinations.map(values => ({values, shown: keys.map(key => values[key])}));
+  const originals = results.length;
+  for (const entry of include) {
+    // An entry extends every original combination whose own values it doesn't change.
+    let added = false;
+    for (const result of results.slice(0, originals)) {
+      if (Object.entries(entry).every(([key, value]) => !keys.includes(key) || same(result.values[key], value))) {
+        Object.assign(result.values, entry);
+        added = true;
+      }
+    }
+    if (!added) results.push({values: {...entry}, shown: Object.values(entry)});
+  }
+  return results.length > MAX_MATRIX_JOBS || results.some(result => !result.shown.length) ? null : results;
+}
+
+// The check run names a job reports, or null when they depend on expressions
+// other than the matrix, a dynamic matrix, or a reusable workflow.
+export function jobCheckNames(id, job) {
+  if (!job || typeof job !== 'object' || job.uses) return null;
+  const name = job.name || id;
+  if (typeof name !== 'string') return null;
+  const matrix = job.strategy?.matrix;
+  if (matrix === undefined) return hasExpression(name) ? null : [name];
+  const combinations = matrixCombinations(matrix);
+  if (!combinations) return null;
+  // A name without expressions gets the matrix values appended.
+  if (!hasExpression(name)) return combinations.map(({shown}) => name + ' (' + shown.flatMap(leaves).join(', ') + ')');
+  const parts = name.split(/(\$\{\{.*?\}\})/);
+  const paths = parts.map((part, index) => index % 2 ? part.match(/^\$\{\{\s*matrix((?:\.[A-Za-z_][\w-]*)+)\s*\}\}$/)?.[1].slice(1).split('.') : null);
+  if (paths.some((path, index) => index % 2 && !path)) return null;
+  const names = [];
+  for (const {values} of combinations) {
+    let text = '';
+    for (let index = 0; index < parts.length; index++) {
+      if (index % 2 === 0) {
+        text += parts[index];
+        continue;
+      }
+      const value = paths[index].reduce((current, key) => current?.[key], values);
+      if (value !== null && typeof value === 'object') return null;
+      text += value === undefined ? '' : String(value);
+    }
+    names.push(text);
+  }
+  return names;
+}
+
 function workflowInfo(file, repository, sha) {
   const lines = new LineCounter();
   try {
@@ -18,14 +96,15 @@ function workflowInfo(file, repository, sha) {
     let dynamic = false;
     for (const [id, job] of Object.entries(jobs)) {
       if (!job || typeof job !== 'object') continue;
-      const name = job.name || id;
-      if (job.uses || job.strategy?.matrix || typeof name !== 'string' || name.includes('$' + '{{')) {
+      const checkNames = jobCheckNames(id, job);
+      if (!checkNames) {
         dynamic = true;
         continue;
       }
       const node = doc.get('jobs', true)?.get?.(id, true);
       const nameNode = node?.get?.('name', true) || node;
-      names.push({name, line: lines.linePos(nameNode?.range?.[0] || 0).line});
+      const line = lines.linePos(nameNode?.range?.[0] || 0).line;
+      names.push(...checkNames.map(name => ({name, line})));
     }
     const onNode = doc.contents?.items?.find(pair => pair.key?.value === 'on')?.key || doc.get('on', true);
     const line = lines.linePos(onNode?.range?.[0] || 0).line;
@@ -256,6 +335,15 @@ export function analyze(snapshot) {
     const producers = workflows.filter(file => file.names.some(job => job.name === required.context));
     if (producers.length === 1) {
       const workflow = producers[0];
+      // GitHub holds workflow runs from some fork PRs until a maintainer approves them.
+      const waiting = (snapshot.runs?.data || []).find(run => run.path === workflow.path && run.conclusion === 'action_required');
+      if (waiting) {
+        row.cause = 'workflow_awaiting_approval';
+        if (row.code !== 'passed_on_other_commit') row.code = row.cause;
+        evidence.push({label: workflow.path + ' run · action_required', url: waiting.url || null, detail: 'Event ' + waiting.event});
+        details.push('The run of ' + workflow.path + ' for this commit is waiting for a maintainer to approve workflows' + (snapshot.pr.fork ? ' from this fork' : '') + '.');
+        return row;
+      }
       const filter = workflowFilter(workflow, snapshot);
       evidence.push({label: workflow.path, url: workflow.url + '#L' + workflow.line, detail: 'Workflow event configuration'});
       if (filter.state === 'excluded' || filter.state === 'unsupported_event') {

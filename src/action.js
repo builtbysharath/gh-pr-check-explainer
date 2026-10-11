@@ -12,7 +12,8 @@ const STUCK = {
   workflow_has_no_pr_event: {why: 'The workflow that reports it has no pull request event.', fix: 'Add a `pull_request` trigger to that workflow, or require a different check.'},
   job_removed_or_renamed: {why: 'This PR removes or renames the job that reports it.', fix: 'Keep the job name, or update the required check in the branch rule when this PR merges.'},
   wrong_reporting_app: {why: 'A check with this name comes from a different GitHub App than the rule requires.', fix: 'Change the app the rule expects, or report the check from the expected app.'},
-  ineligible_workflow_event: {why: 'Its only result comes from an event that cannot satisfy a pull request requirement.', fix: 'Run the job on `pull_request` as well.'}
+  ineligible_workflow_event: {why: 'Its only result comes from an event that cannot satisfy a pull request requirement.', fix: 'Run the job on `pull_request` as well.'},
+  workflow_awaiting_approval: {why: 'Its workflow run is waiting for a maintainer to approve workflows from this fork.', fix: 'A maintainer can approve the run from the Checks section of this pull request.'}
 };
 
 function headers(token, json) {

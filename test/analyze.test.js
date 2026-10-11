@@ -29,6 +29,16 @@ test('a matching path does not get diagnosed as filtered', () => {
   const s = fresh(); s.files.data = ['src/index.ts'];
   assert.equal(analyze(s).checks[0].code, 'required_check_missing'); assert.equal(analyze(s).checks[0].cause, null);
 });
+test('a required check whose workflow waits for approval on a fork PR is explained', () => {
+  // cli/cli#14646: a first-time contributor's workflows wait for a maintainer to approve them.
+  const s = fresh(); s.files.data = ['src/index.ts']; s.pr.fork = true;
+  s.runs.data = [{id: 3, event: 'pull_request', path: '.github/workflows/build.yml', status: 'completed', conclusion: 'action_required', url: 'https://github.com/example/acme-widget/actions/runs/3'}];
+  const check = analyze(s).checks[0];
+  assert.equal(check.code, 'workflow_awaiting_approval'); assert.equal(check.cause, 'workflow_awaiting_approval');
+  assert.ok(check.evidence.some(item => item.url === 'https://github.com/example/acme-widget/actions/runs/3'));
+  // Without that run conclusion (older snapshots), nothing is inferred.
+  delete s.runs.data[0].conclusion; assert.equal(analyze(s).checks[0].code, 'required_check_missing');
+});
 test('GitHub question-mark and embedded double-star filters remain unsupported', () => {
   for (const pattern of ['docs?/**', '**.js']) {
     const s = fresh(); s.workflows.data[0].text = s.workflows.data[0].text.replace('src/**', pattern);

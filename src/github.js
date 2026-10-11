@@ -153,7 +153,8 @@ export async function collect(repository, number, request = ghRequest) {
   const previousChecks = previousSha ? await checks(previousSha) : {available: true, data: []};
   const runsResult = await pages(request, root + '/actions/runs?head_sha=' + endpointPart(pr.head.sha), data => data.workflow_runs);
   const runs = runsResult.available ? {...runsResult, data: runsResult.data.map(run => ({
-    id: run.id, event: run.event, path: run.path, suiteId: run.check_suite_id, url: run.html_url
+    id: run.id, event: run.event, path: run.path, suiteId: run.check_suite_id, url: run.html_url,
+    status: run.status, conclusion: run.conclusion
   }))} : runsResult;
   const headRoot = pr.head.repo?.full_name && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(pr.head.repo.full_name) ?
     'repos/' + pr.head.repo.full_name : root;
