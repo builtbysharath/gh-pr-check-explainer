@@ -21,6 +21,10 @@ test('explains the documented docs-only PR blocked by a src path filter', () => 
   assert.ok(report.checks[0].details.some(detail => detail.includes('excludes all 2 changed files')));
   assert.ok(report.checks[0].evidence.some(item => item.url?.endsWith('#L2')));
 });
+test('a single excluded file is described in the singular', () => {
+  const s = fresh(); s.files.data = ['README.md'];
+  assert.ok(analyze(s).checks[0].details.includes('The pull_request path filter excludes the 1 changed file.'));
+});
 test('a matching path does not get diagnosed as filtered', () => {
   const s = fresh(); s.files.data = ['src/index.ts'];
   assert.equal(analyze(s).checks[0].code, 'required_check_missing'); assert.equal(analyze(s).checks[0].cause, null);

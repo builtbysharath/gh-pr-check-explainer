@@ -84,7 +84,7 @@ function eventFilter(event, config, snapshot) {
     const results = snapshot.files.data.map(file => matchPatterns(file, config.paths || config['paths-ignore']));
     if (results.some(result => result === null)) return {state: 'unknown'};
     if (config.paths ? !results.some(Boolean) : results.every(Boolean)) {
-      reasons.push('The ' + event + ' path filter excludes all ' + results.length + ' changed files.');
+      reasons.push('The ' + event + ' path filter excludes ' + (results.length === 1 ? 'the 1 changed file.' : 'all ' + results.length + ' changed files.'));
     }
   }
   return {state: reasons.length ? 'excluded' : 'eligible', reasons};
