@@ -56,8 +56,9 @@ test('push-only workflows miss fork PRs, and other events never satisfy PR check
   for (const on of [{push: {branches: ['main']}}, {push: {tags: ['v*']}}, {schedule: [{cron: '0 0 * * *'}]}, 'workflow_dispatch']) {
     const row = one(on);
     assert.deepEqual(row.codes, ['workflow_has_no_pr_event'], JSON.stringify(on));
-    assert.match(row.details[0], /^\.github\/workflows\/ci\.yml runs only on /);
+    assert.match(row.details[0], /^\.github\/workflows\/ci\.yml runs only on .*\. None of these give pull requests a result for this check\.$/);
   }
+  assert.match(one({push: {branches: ['main']}}).details[0], /runs only on push; its push trigger only runs for the branches main\./);
 });
 
 test('workflows that report the same name are ambiguous; reusable and workflow_run copies are not', () => {

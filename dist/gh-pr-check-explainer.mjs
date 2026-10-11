@@ -9646,7 +9646,11 @@ function auditCheck(required, workflows, snapshot) {
   }
   if (!reporting.length) {
     codes.push("workflow_has_no_pr_event");
-    details.push(...producers.map((file2) => file2.path + " runs only on " + Object.keys(workflowEvents(file2.on)).join(", ") + ", and these runs do not satisfy required checks on pull requests."));
+    details.push(...producers.map((file2) => {
+      const events2 = workflowEvents(file2.on);
+      const push = events2.push ? "; its push trigger only runs for " + (events2.push.branches ? "the branches " + [events2.push.branches].flat().join(", ") : "tags") : "";
+      return file2.path + " runs only on " + Object.keys(events2).join(", ") + push + ". None of these give pull requests a result for this check.";
+    }));
     return finish();
   }
   const file = reporting[0];
@@ -9806,7 +9810,7 @@ async function readWorkflows(request, root, ref) {
 function summaryPolicy(branch, classicCheck) {
   const summary = branch.available && branch.data.protected === true ? branch.data.protection : null;
   const summaryChecks = summary?.required_status_checks;
-  return branch.available && branch.data.protected === false || summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary?.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => classicCheck(check.context, check.app_id)) } : { available: false, error: "No classic rule was returned; the base branch is protected or its protection state could not be confirmed." };
+  return branch.available && branch.data.protected === false || summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary?.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => classicCheck(check.context, check.app_id)) } : { available: false, error: "No classic rule was returned; the branch is protected or its protection state could not be confirmed." };
 }
 async function rulesetPolicy(request, root, repository, branch) {
   const rulesResult = await pages(request, root + "/rules/branches/" + endpointPart(branch));

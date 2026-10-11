@@ -9614,7 +9614,7 @@ async function readWorkflows(request, root, ref) {
 function summaryPolicy(branch, classicCheck) {
   const summary = branch.available && branch.data.protected === true ? branch.data.protection : null;
   const summaryChecks = summary?.required_status_checks;
-  return branch.available && branch.data.protected === false || summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary?.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => classicCheck(check.context, check.app_id)) } : { available: false, error: "No classic rule was returned; the base branch is protected or its protection state could not be confirmed." };
+  return branch.available && branch.data.protected === false || summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary?.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => classicCheck(check.context, check.app_id)) } : { available: false, error: "No classic rule was returned; the branch is protected or its protection state could not be confirmed." };
 }
 async function rulesetPolicy(request, root, repository, branch) {
   const rulesResult = await pages(request, root + "/rules/branches/" + endpointPart(branch));

@@ -513,7 +513,11 @@ function auditCheck(required, workflows, snapshot) {
   }
   if (!reporting.length) {
     codes.push('workflow_has_no_pr_event');
-    details.push(...producers.map(file => file.path + ' runs only on ' + Object.keys(workflowEvents(file.on)).join(', ') + ', and these runs do not satisfy required checks on pull requests.'));
+    details.push(...producers.map(file => {
+      const events = workflowEvents(file.on);
+      const push = events.push ? '; its push trigger only runs for ' + (events.push.branches ? 'the branches ' + [events.push.branches].flat().join(', ') : 'tags') : '';
+      return file.path + ' runs only on ' + Object.keys(events).join(', ') + push + '. None of these give pull requests a result for this check.';
+    }));
     return finish();
   }
   const file = reporting[0];

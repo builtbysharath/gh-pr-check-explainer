@@ -90,7 +90,7 @@ function summaryPolicy(branch, classicCheck) {
     summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === 'off' ? {available: true, strict: false, checks: []} :
     summary?.enabled === true && Array.isArray(summaryChecks?.checks) ?
     {available: true, strict: undefined, fromSummary: true, checks: summaryChecks.checks.map(check => classicCheck(check.context, check.app_id))} :
-    {available: false, error: 'No classic rule was returned; the base branch is protected or its protection state could not be confirmed.'};
+    {available: false, error: 'No classic rule was returned; the branch is protected or its protection state could not be confirmed.'};
 }
 
 async function rulesetPolicy(request, root, repository, branch) {
