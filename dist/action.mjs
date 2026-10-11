@@ -9276,19 +9276,25 @@ function matchPatterns(value, patterns) {
   }
   return included;
 }
+function branchAllowed(config, branch) {
+  if (config === null || config === void 0) return true;
+  if (typeof config !== "object" || Array.isArray(config) || config.branches && config["branches-ignore"]) return null;
+  const patterns = config.branches || config["branches-ignore"];
+  if (!patterns) return true;
+  const match = matchPatterns(branch, patterns);
+  return match === null ? null : config.branches ? match : !match;
+}
 function eventFilter(event, config, snapshot) {
   if (config === null || config === void 0) return { state: "eligible" };
   if (typeof config !== "object" || Array.isArray(config)) return { state: "unknown" };
   if (config.types || config.tags || config["tags-ignore"]) return { state: "unknown" };
   const reasons = [];
-  if (config.branches && config["branches-ignore"]) return { state: "unknown" };
   if (config.paths && config["paths-ignore"]) return { state: "unknown" };
   const branch = event === "push" ? snapshot.pr.headBranch : snapshot.pr.baseBranch;
   if (config.branches || config["branches-ignore"]) {
-    if (!branch) return { state: "unknown" };
-    const match = matchPatterns(branch, config.branches || config["branches-ignore"]);
-    if (match === null) return { state: "unknown" };
-    if (config.branches ? !match : match) reasons.push("The " + event + " branch filter excludes " + branch + ".");
+    const allowed = branch ? branchAllowed(config, branch) : null;
+    if (allowed === null) return { state: "unknown" };
+    if (!allowed) reasons.push("The " + event + " branch filter excludes " + branch + ".");
   }
   if (config.paths || config["paths-ignore"]) {
     if (event === "push") return { state: "unknown" };
@@ -9301,12 +9307,14 @@ function eventFilter(event, config, snapshot) {
   }
   return { state: reasons.length ? "excluded" : "eligible", reasons };
 }
+function workflowEvents(on) {
+  if (typeof on === "string") return { [on]: null };
+  if (Array.isArray(on)) return Object.fromEntries(on.map((event) => [event, null]));
+  return on && typeof on === "object" ? on : null;
+}
 function workflowFilter(workflow, snapshot) {
-  let events;
-  if (typeof workflow.on === "string") events = { [workflow.on]: null };
-  else if (Array.isArray(workflow.on)) events = Object.fromEntries(workflow.on.map((event) => [event, null]));
-  else if (workflow.on && typeof workflow.on === "object") events = workflow.on;
-  else return { state: "unknown" };
+  const events = workflowEvents(workflow.on);
+  if (!events) return { state: "unknown" };
   const relevant = Object.entries(events).filter(([event]) => PR_EVENTS.has(event));
   if (!relevant.length) return { state: "unsupported_event", reasons: ["This workflow has no event that can satisfy ordinary PR required checks."] };
   const results = relevant.map(([event, config]) => {
@@ -9521,6 +9529,7 @@ function analyze(snapshot) {
 // src/github.js
 import { execFileSync } from "node:child_process";
 var QUERY = "query($owner:String!,$repo:String!,$number:Int!) { repository(owner:$owner,name:$repo) { pullRequest(number:$number) { baseRef { branchProtectionRule { requiresStatusChecks requiresStrictStatusChecks requiredStatusChecks { context app { databaseId slug } } } } } } }";
+var REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 function endpointPart(value) {
   return encodeURIComponent(value);
 }
@@ -9602,8 +9611,25 @@ async function readWorkflows(request, root, ref) {
   }
   return { available: true, data: contents };
 }
+function summaryPolicy(branch, classicCheck) {
+  const summary = branch.available && branch.data.protected === true ? branch.data.protection : null;
+  const summaryChecks = summary?.required_status_checks;
+  return branch.available && branch.data.protected === false || summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary?.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => classicCheck(check.context, check.app_id)) } : { available: false, error: "No classic rule was returned; the base branch is protected or its protection state could not be confirmed." };
+}
+async function rulesetPolicy(request, root, repository, branch) {
+  const rulesResult = await pages(request, root + "/rules/branches/" + endpointPart(branch));
+  const malformedRule = rulesResult.available && rulesResult.data.some((rule) => rule.type === "required_status_checks" && !Array.isArray(rule.parameters?.required_status_checks));
+  const rulesets = malformedRule ? { available: false, error: "A required-check rule did not return its checks." } : rulesResult.available ? { available: true, checks: rulesResult.data.filter((rule) => rule.type === "required_status_checks").flatMap((rule) => (rule.parameters?.required_status_checks || []).map((check) => ({
+    context: check.context,
+    appId: check.integration_id || null,
+    source: (rule.ruleset_source || repository) + " ruleset " + rule.ruleset_id,
+    sourceType: rule.ruleset_source_type || "Repository",
+    url: !rule.ruleset_source_type || rule.ruleset_source_type === "Repository" ? "https://github.com/" + (rule.ruleset_source || repository) + "/rules/" + rule.ruleset_id : null
+  }))) } : rulesResult;
+  return { rulesResult, rulesets };
+}
 async function collect(repository, number, request = ghRequest) {
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || repository.startsWith("-") || !Number.isSafeInteger(number) || number < 1) throw new Error("Use --repo OWNER/REPO and a positive --pr number.");
+  if (!REPOSITORY.test(repository) || repository.startsWith("-") || !Number.isSafeInteger(number) || number < 1) throw new Error("Use --repo OWNER/REPO and a positive --pr number.");
   const [owner, repo] = repository.split("/");
   const root = "repos/" + repository;
   const pull = await request(root + "/pulls/" + number);
@@ -9621,20 +9647,9 @@ async function collect(repository, number, request = ghRequest) {
       checks: rule.requiresStatusChecks ? rule.requiredStatusChecks.map((check) => classicCheck(check.context, check.app?.databaseId)) : []
     };
   } else {
-    const branch = await request(root + "/branches/" + endpointPart(pr.base.ref));
-    const summary = branch.available && branch.data.protected === true ? branch.data.protection : null;
-    const summaryChecks = summary?.required_status_checks;
-    classic = branch.available && branch.data.protected === false || summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary?.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => classicCheck(check.context, check.app_id)) } : { available: false, error: "No classic rule was returned; the base branch is protected or its protection state could not be confirmed." };
+    classic = summaryPolicy(await request(root + "/branches/" + endpointPart(pr.base.ref)), classicCheck);
   }
-  const rulesResult = await pages(request, root + "/rules/branches/" + endpointPart(pr.base.ref));
-  const malformedRule = rulesResult.available && rulesResult.data.some((rule2) => rule2.type === "required_status_checks" && !Array.isArray(rule2.parameters?.required_status_checks));
-  const rulesets = malformedRule ? { available: false, error: "A required-check rule did not return its checks." } : rulesResult.available ? { available: true, checks: rulesResult.data.filter((rule2) => rule2.type === "required_status_checks").flatMap((rule2) => (rule2.parameters?.required_status_checks || []).map((check) => ({
-    context: check.context,
-    appId: check.integration_id || null,
-    source: (rule2.ruleset_source || repository) + " ruleset " + rule2.ruleset_id,
-    sourceType: rule2.ruleset_source_type || "Repository",
-    url: !rule2.ruleset_source_type || rule2.ruleset_source_type === "Repository" ? "https://github.com/" + (rule2.ruleset_source || repository) + "/rules/" + rule2.ruleset_id : null
-  }))) } : rulesResult;
+  const { rulesResult, rulesets } = await rulesetPolicy(request, root, repository, pr.base.ref);
   const statusRules = rulesResult.available ? rulesResult.data.filter((rule2) => rule2.type === "required_status_checks") : [];
   const strictUnknown = classic.available && classic.checks.length > 0 && typeof classic.strict !== "boolean" || statusRules.some((rule2) => typeof rule2.parameters?.strict_required_status_checks_policy !== "boolean");
   const strict = classic.strict === true || statusRules.some((rule2) => rule2.parameters?.strict_required_status_checks_policy === true);

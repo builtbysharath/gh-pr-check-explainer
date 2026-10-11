@@ -151,6 +151,16 @@ function matchPatterns(value, patterns) {
   return included;
 }
 
+// Whether an event's branches or branches-ignore filter admits a branch, or null when unknown.
+function branchAllowed(config, branch) {
+  if (config === null || config === undefined) return true;
+  if (typeof config !== 'object' || Array.isArray(config) || config.branches && config['branches-ignore']) return null;
+  const patterns = config.branches || config['branches-ignore'];
+  if (!patterns) return true;
+  const match = matchPatterns(branch, patterns);
+  return match === null ? null : config.branches ? match : !match;
+}
+
 function eventFilter(event, config, snapshot) {
   if (config === null || config === undefined) return {state: 'eligible'};
   if (typeof config !== 'object' || Array.isArray(config)) return {state: 'unknown'};
@@ -158,14 +168,12 @@ function eventFilter(event, config, snapshot) {
   // triggering action we cannot infer whether the workflow should have run.
   if (config.types || config.tags || config['tags-ignore']) return {state: 'unknown'};
   const reasons = [];
-  if (config.branches && config['branches-ignore']) return {state: 'unknown'};
   if (config.paths && config['paths-ignore']) return {state: 'unknown'};
   const branch = event === 'push' ? snapshot.pr.headBranch : snapshot.pr.baseBranch;
   if (config.branches || config['branches-ignore']) {
-    if (!branch) return {state: 'unknown'};
-    const match = matchPatterns(branch, config.branches || config['branches-ignore']);
-    if (match === null) return {state: 'unknown'};
-    if (config.branches ? !match : match) reasons.push('The ' + event + ' branch filter excludes ' + branch + '.');
+    const allowed = branch ? branchAllowed(config, branch) : null;
+    if (allowed === null) return {state: 'unknown'};
+    if (!allowed) reasons.push('The ' + event + ' branch filter excludes ' + branch + '.');
   }
   if (config.paths || config['paths-ignore']) {
     // A push compares its before/after commits, not the PR's three-dot diff.
@@ -182,12 +190,15 @@ function eventFilter(event, config, snapshot) {
   return {state: reasons.length ? 'excluded' : 'eligible', reasons};
 }
 
+function workflowEvents(on) {
+  if (typeof on === 'string') return {[on]: null};
+  if (Array.isArray(on)) return Object.fromEntries(on.map(event => [event, null]));
+  return on && typeof on === 'object' ? on : null;
+}
+
 function workflowFilter(workflow, snapshot) {
-  let events;
-  if (typeof workflow.on === 'string') events = {[workflow.on]: null};
-  else if (Array.isArray(workflow.on)) events = Object.fromEntries(workflow.on.map(event => [event, null]));
-  else if (workflow.on && typeof workflow.on === 'object') events = workflow.on;
-  else return {state: 'unknown'};
+  const events = workflowEvents(workflow.on);
+  if (!events) return {state: 'unknown'};
   const relevant = Object.entries(events).filter(([event]) => PR_EVENTS.has(event));
   if (!relevant.length) return {state: 'unsupported_event', reasons: ['This workflow has no event that can satisfy ordinary PR required checks.']};
   const results = relevant.map(([event, config]) => {
@@ -387,5 +398,189 @@ export function analyze(snapshot) {
     url: snapshot.pr.url, draft: Boolean(snapshot.pr.draft), collectedAt: snapshot.collectedAt, headSha: snapshot.pr.headSha,
     evaluatedSha, evaluation: mergeHasReports ? 'test-merge commit' : 'PR head commit',
     overall, branchFreshness: freshness, scope: 'Required status checks and observed strict up-to-date check policy. Reviews, merge conflicts, deployments, and other merge policies are outside this verdict.',
+    checks, limitations};
+}
+
+const ACTIONS_APP = 15368;
+const PR_TRIGGERS = ['pull_request', 'pull_request_target'];
+const AUDIT_ORDER = ['risk', 'unknown', 'ok', 'not_checked'];
+
+// For pull requests into branch: 'all', or what filters them out, or 'unknown'.
+function prReach(config, branch) {
+  const allowed = branchAllowed(config, branch);
+  if (allowed === null) return 'unknown';
+  if (!allowed) return 'branch';
+  const types = config?.types === undefined ? null : [config.types].flat();
+  if (types && !['opened', 'synchronize'].every(type => types.includes(type))) return 'types';
+  return config?.paths || config?.['paths-ignore'] ? 'paths' : 'all';
+}
+// Which pushed branches a push trigger runs for: 'most', 'some', 'none' or 'unknown'.
+function pushReach(config) {
+  if (config === null || config === undefined) return 'most';
+  if (typeof config !== 'object' || Array.isArray(config) || config.branches && config['branches-ignore']) return 'unknown';
+  // With only tag filters, branch pushes don't run the workflow.
+  if (!config.branches && !config['branches-ignore']) return config.tags || config['tags-ignore'] ? 'none' : 'most';
+  if (config['branches-ignore']) return 'most';
+  // Exact names such as [main] run for pushes to those branches, not to PR branches.
+  if (Array.isArray(config.branches) && config.branches.every(pattern => typeof pattern === 'string' && !/[*?[\]+!]/.test(pattern))) return 'none';
+  return 'some';
+}
+function hasFilters(config) {
+  return config !== null && config !== undefined && (typeof config !== 'object' || Array.isArray(config) ||
+    ['branches', 'branches-ignore', 'tags', 'tags-ignore', 'paths', 'paths-ignore'].some(key => config[key] !== undefined));
+}
+// Whether a workflow runs for merge groups into branch: through merge_group, or
+// through a push to the queue's gh-readonly-queue/ branch. Null when unknown.
+function queueReach(events, branch) {
+  if (Object.hasOwn(events, 'merge_group')) return branchAllowed(events.merge_group, branch);
+  if (!Object.hasOwn(events, 'push')) return false;
+  const reach = pushReach(events.push);
+  if (reach === 'unknown' || events.push?.paths || events.push?.['paths-ignore']) return null;
+  return reach !== 'none' && branchAllowed(events.push, 'gh-readonly-queue/' + branch + '/pr-1-' + '0'.repeat(40));
+}
+// 'broad' when a workflow can run for ordinary pull requests into branch,
+// 'narrow' when only for some PR branches, and 'none' otherwise.
+function prTier(file, branch) {
+  const events = workflowEvents(file.on);
+  if (!events) return 'broad';
+  let tier = 'none';
+  for (const [event, config] of Object.entries(events)) {
+    const reach = PR_TRIGGERS.includes(event) ? prReach(config, branch) : event === 'push' ? pushReach(config) : PR_EVENTS.has(event) ? 'unknown' : 'none';
+    if (!['branch', 'some', 'none'].includes(reach)) return 'broad';
+    if (reach !== 'none') tier = 'narrow';
+  }
+  return tier;
+}
+
+function auditCheck(required, workflows, snapshot) {
+  const {branch} = snapshot;
+  const codes = [], details = [];
+  const evidence = [{label: 'Required by ' + required.sources.join(', '),
+    url: required.url || (required.sourceType && required.sourceType !== 'Repository' ? null : 'https://github.com/' + snapshot.repository + '/rules'), detail: required.context}];
+  const row = {...required, state: 'unknown', codes, details, evidence, docs: DOCS};
+  const risk = (code, text) => {
+    codes.push(code);
+    details.push(text);
+  };
+  const finish = (unknown = false, ok = '') => {
+    if (codes.length) {
+      row.state = 'risk';
+      if (!required.appId) details.push('The rule accepts this name from any app or commit status, so another service could still report it.');
+    } else if (unknown) {
+      row.state = 'unknown';
+    } else {
+      row.state = 'ok';
+      details.unshift(ok);
+    }
+    return row;
+  };
+  if (required.appId && required.appId !== ACTIONS_APP) {
+    row.state = 'not_checked';
+    details.push('The rule requires GitHub App ' + required.appId + ', so GitHub Actions workflows are not compared with it.');
+    return row;
+  }
+  if (!snapshot.workflows?.available) {
+    details.push('The workflows on ' + branch + ' could not be read.');
+    return row;
+  }
+  // Jobs of a workflow_call-only workflow report under their caller's job name.
+  const producers = workflows.filter(file => {
+    const events = workflowEvents(file.on);
+    return file.names.some(job => job.name === required.context) && (!events || Object.keys(events).some(event => event !== 'workflow_call'));
+  });
+  if (!producers.length) {
+    evidence.push({label: '.github/workflows', url: 'https://github.com/' + snapshot.repository + '/tree/' + snapshot.sha + '/.github/workflows', detail: 'Workflows on ' + branch});
+    const dynamic = workflows.some(file => file.dynamic);
+    if (required.appId === ACTIONS_APP && !dynamic) {
+      risk('no_producer', 'No workflow on ' + branch + ' has a job that reports this name, so pull requests wait for it.');
+      return finish();
+    }
+    const sources = [...(required.appId ? [] : ['another app or a commit status']), ...(dynamic ? ['a job name that could not be expanded'] : [])];
+    details.push('No workflow job on ' + branch + ' reports this name. It may come from ' + sources.join(', or ') + '.');
+    return row;
+  }
+  for (const file of producers) {
+    evidence.push({label: file.path, url: file.url + '#L' + file.names.find(job => job.name === required.context).line, detail: 'Job that reports ' + required.context});
+  }
+  // A workflow limited to other branches, such as a release-branch copy, only
+  // matters when no workflow runs for ordinary pull requests.
+  const tiers = producers.map(file => prTier(file, branch));
+  const broad = producers.filter((file, index) => tiers[index] === 'broad');
+  const reporting = broad.length ? broad : producers.filter((file, index) => tiers[index] === 'narrow');
+  if (reporting.length > 1) {
+    risk('ambiguous_producers', 'Several workflows can report a check with this name: ' + reporting.map(file => file.path).join(', ') + '. GitHub does not document which of their runs a required check uses, so one workflow\'s result can stand in for another\'s. Unique job names make each a separate check.');
+    return finish();
+  }
+  if (!reporting.length) {
+    codes.push('workflow_has_no_pr_event');
+    details.push(...producers.map(file => file.path + ' runs only on ' + Object.keys(workflowEvents(file.on)).join(', ') + ', and these runs do not satisfy required checks on pull requests.'));
+    return finish();
+  }
+  const file = reporting[0];
+  const events = workflowEvents(file.on);
+  if (!events) {
+    details.push('The triggers of ' + file.path + ' could not be read.');
+    return row;
+  }
+  evidence.push({label: file.path + ' triggers', url: file.url + '#L' + file.line, detail: Object.keys(events).join(', ')});
+  const prEvents = PR_TRIGGERS.filter(event => Object.hasOwn(events, event));
+  const reaches = prEvents.map(event => prReach(events[event], branch));
+  const event = state => prEvents[reaches.indexOf(state)];
+  const hasPush = Object.hasOwn(events, 'push');
+  const forks = hasPush && !hasFilters(events.push) ? ' Its push trigger still reports the check for branches in this repository, so this mainly affects pull requests from forks.' : '';
+  let unknown = false;
+  if (reaches.includes('all')) {
+    // Every pull request into the branch runs it.
+  } else if (reaches.includes('unknown')) {
+    unknown = true;
+    details.push('The ' + event('unknown') + ' filters in ' + file.path + ' cannot be fully evaluated.');
+  } else if (reaches.includes('paths')) {
+    risk('workflow_path_filtered', 'The ' + event('paths') + ' path filter in ' + file.path + ' skips pull requests that change only other files, and they wait for this check.' + forks);
+  } else if (reaches.includes('types')) {
+    risk('workflow_types_filtered', 'The ' + event('types') + ' types filter in ' + file.path + ' leaves out opened or synchronize, so some pull requests or new commits never get this check.' + forks);
+  } else if (reaches.length) {
+    risk('workflow_branch_filtered', 'The ' + prEvents[0] + ' branch filter in ' + file.path + ' excludes ' + branch + ', so pull requests into ' + branch + ' never get this check.' + forks);
+  } else if (hasPush && pushReach(events.push) !== 'unknown') {
+    risk('workflow_push_only', file.path + ' runs on push but not on pull_request, so pull requests from forks never get this check' +
+      (pushReach(events.push) === 'some' ? ', and branches outside its push filter don\'t either' : '') + '.' +
+      (events.push?.paths || events.push?.['paths-ignore'] ? ' Its push path filter also skips pushes that change only other files.' : ''));
+  } else {
+    unknown = true;
+    details.push('Whether the ' + Object.keys(events).join(', ') + ' triggers of ' + file.path + ' report on pull requests is not evaluated.');
+  }
+  const queue = snapshot.mergeQueue?.enabled === true;
+  if (queue) {
+    const queued = queueReach(events, branch);
+    if (queued === null) {
+      unknown = true;
+      details.push('Whether ' + file.path + ' runs in the merge queue cannot be fully evaluated.');
+    } else if (!queued) {
+      risk('merge_queue_not_triggered', branch + ' uses a merge queue, but ' + (Object.hasOwn(events, 'merge_group') ? 'the merge_group branch filter in ' + file.path + ' excludes it' : file.path + ' has no merge_group trigger') +
+        ', so this check is never reported for queued pull requests and they fail to merge.');
+    }
+  }
+  return finish(unknown, 'Reported by ' + file.path + ' on pull requests' + (queue ? ' and in the merge queue' : '') + '.');
+}
+
+// Compares a branch's required checks with the workflows on that branch to
+// find checks that pull requests would wait for indefinitely.
+export function audit(snapshot) {
+  if (snapshot?.schemaVersion !== 1 || snapshot.kind !== 'repository' || typeof snapshot.repository !== 'string' ||
+      typeof snapshot.branch !== 'string' || typeof snapshot.sha !== 'string') throw new Error('Not a version 1 repository snapshot.');
+  const limitations = [];
+  for (const field of ['rulesets', 'classic', 'mergeQueue', 'workflows']) {
+    if (!snapshot[field]?.available) limitations.push(field + ': ' + (snapshot[field]?.error || 'not observed'));
+  }
+  const workflows = (snapshot.workflows?.data || []).map(file => workflowInfo(file, snapshot.repository, snapshot.sha));
+  for (const workflow of workflows.filter(item => item.error)) limitations.push(workflow.path + ': ' + workflow.error);
+  if (workflows.some(file => file.dynamic)) limitations.push('Dynamic matrix names and reusable workflows are not expanded; checks they report may be listed as unknown.');
+  const checks = policyChecks(snapshot).map(required => auditCheck(required, workflows, snapshot))
+    .sort((a, b) => AUDIT_ORDER.indexOf(a.state) - AUDIT_ORDER.indexOf(b.state));
+  const incomplete = limitations.some(text => /^(rulesets|classic|mergeQueue|workflows):/.test(text));
+  const overall = checks.some(check => check.state === 'risk') ? 'risks' :
+    incomplete || checks.some(check => check.state === 'unknown') ? 'unknown' : checks.length ? 'ok' : 'none';
+  return {schemaVersion: 1, kind: 'audit', repository: snapshot.repository, branch: snapshot.branch, sha: snapshot.sha, collectedAt: snapshot.collectedAt,
+    mergeQueue: snapshot.mergeQueue?.available ? snapshot.mergeQueue.enabled ? 'in use' : 'not in use' : 'unknown', overall,
+    scope: 'Required status checks on ' + snapshot.branch + ' compared with the workflows on that branch. Job conditions, workflow changes inside a pull request, and other merge rules are not evaluated.',
     checks, limitations};
 }

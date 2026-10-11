@@ -1,5 +1,5 @@
 export function parseArguments(args) {
-  const options = {}, allowed = new Set(['--repo', '--pr', '--snapshot', '--format', '--output', '--save-snapshot']);
+  const options = {}, allowed = new Set(['--repo', '--pr', '--snapshot', '--format', '--output', '--save-snapshot', '--audit', '--branch']);
   let prUrl;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -11,6 +11,8 @@ export function parseArguments(args) {
       options[arg] = args[++i];
     }
   }
+  if (options['--audit'] && (prUrl || options['--repo'] || options['--pr'] || options['--snapshot'])) throw new Error('--audit cannot be combined with a PR URL, --repo, --pr or --snapshot.');
+  if (options['--branch'] && !options['--audit']) throw new Error('--branch needs --audit.');
   if (prUrl) {
     if (options['--repo'] || options['--pr'] || options['--snapshot']) throw new Error('A PR URL cannot be combined with --repo, --pr or --snapshot.');
     // Match the input itself: URL normalization must not accept credentials,

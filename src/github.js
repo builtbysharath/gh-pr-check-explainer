@@ -1,6 +1,9 @@
 import {execFileSync} from 'node:child_process';
 
 const QUERY = 'query($owner:String!,$repo:String!,$number:Int!) { repository(owner:$owner,name:$repo) { pullRequest(number:$number) { baseRef { branchProtectionRule { requiresStatusChecks requiresStrictStatusChecks requiredStatusChecks { context app { databaseId slug } } } } } } }';
+// Any reader can see whether a branch has a merge queue; its settings stay hidden.
+const MERGE_QUEUE_QUERY = 'query($owner:String!,$repo:String!,$branch:String!) { repository(owner:$owner,name:$repo) { mergeQueue(branch:$branch) { id } } }';
+const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 function endpointPart(value) { return encodeURIComponent(value); }
 function errorMessage(error) {
   const text = String(error.stderr || error.message || 'GitHub request failed');
@@ -78,8 +81,61 @@ async function readWorkflows(request, root, ref) {
   return {available: true, data: contents};
 }
 
+// The branch summary lists classic required checks to any reader, but not
+// whether the branch must be up to date.
+function summaryPolicy(branch, classicCheck) {
+  const summary = branch.available && branch.data.protected === true ? branch.data.protection : null;
+  const summaryChecks = summary?.required_status_checks;
+  return branch.available && branch.data.protected === false ||
+    summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === 'off' ? {available: true, strict: false, checks: []} :
+    summary?.enabled === true && Array.isArray(summaryChecks?.checks) ?
+    {available: true, strict: undefined, fromSummary: true, checks: summaryChecks.checks.map(check => classicCheck(check.context, check.app_id))} :
+    {available: false, error: 'No classic rule was returned; the base branch is protected or its protection state could not be confirmed.'};
+}
+
+async function rulesetPolicy(request, root, repository, branch) {
+  const rulesResult = await pages(request, root + '/rules/branches/' + endpointPart(branch));
+  const malformedRule = rulesResult.available && rulesResult.data.some(rule =>
+    rule.type === 'required_status_checks' && !Array.isArray(rule.parameters?.required_status_checks));
+  const rulesets = malformedRule ? {available: false, error: 'A required-check rule did not return its checks.'} : rulesResult.available ? {available: true, checks: rulesResult.data
+    .filter(rule => rule.type === 'required_status_checks')
+    .flatMap(rule => (rule.parameters?.required_status_checks || []).map(check => ({
+      context: check.context, appId: check.integration_id || null,
+      source: (rule.ruleset_source || repository) + ' ruleset ' + rule.ruleset_id,
+      sourceType: rule.ruleset_source_type || 'Repository',
+      url: !rule.ruleset_source_type || rule.ruleset_source_type === 'Repository' ? 'https://github.com/' + (rule.ruleset_source || repository) + '/rules/' + rule.ruleset_id : null
+    })))} : rulesResult;
+  return {rulesResult, rulesets};
+}
+
+// Reads a branch's required checks, merge queue and workflows, so they can be
+// compared before any pull request gets stuck.
+export async function collectRepository(repository, branch, request = ghRequest) {
+  if (!REPOSITORY.test(repository) || repository.startsWith('-')) throw new Error('Use --audit OWNER/REPO.');
+  if (branch !== undefined && (typeof branch !== 'string' || !branch || branch.length > 255 || /[\u0000-\u0020\u007f~^:?*[\\]/.test(branch))) throw new Error('Use a valid branch name with --branch.');
+  const [owner, repo] = repository.split('/');
+  const root = 'repos/' + repository;
+  const info = await request(root);
+  if (!info.available) throw new Error(info.error);
+  const name = branch || info.data.default_branch;
+  const tip = await request(root + '/branches/' + endpointPart(name));
+  if (!tip.available) throw new Error('Could not read branch ' + name + ': ' + tip.error);
+  const sha = tip.data.commit?.sha;
+  if (typeof sha !== 'string' || !sha) throw new Error('GitHub did not return the commit of branch ' + name + '.');
+  const classic = summaryPolicy(tip, (context, appId) => ({context, appId: appId || null, source: 'classic branch protection', url: info.data.html_url + '/settings/branches'}));
+  const {rulesResult, rulesets} = await rulesetPolicy(request, root, repository, name);
+  const queue = await request('graphql', {query: MERGE_QUEUE_QUERY, variables: {owner, repo, branch: name}});
+  const queueRepository = queue.available ? queue.data?.data?.repository : undefined;
+  const mergeQueue = rulesResult.available && rulesResult.data.some(rule => rule.type === 'merge_queue') ? {available: true, enabled: true} :
+    queueRepository && typeof queueRepository === 'object' ? {available: true, enabled: queueRepository.mergeQueue != null} :
+    {available: false, error: queue.error || 'GitHub did not say whether the branch uses a merge queue.'};
+  const workflows = await readWorkflows(request, root, sha);
+  return {schemaVersion: 1, kind: 'repository', repository, branch: name, sha, url: info.data.html_url, collectedAt: new Date().toISOString(),
+    classic, rulesets, mergeQueue, workflows};
+}
+
 export async function collect(repository, number, request = ghRequest) {
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || repository.startsWith('-') ||
+  if (!REPOSITORY.test(repository) || repository.startsWith('-') ||
       !Number.isSafeInteger(number) || number < 1) throw new Error('Use --repo OWNER/REPO and a positive --pr number.');
   const [owner, repo] = repository.split('/');
   const root = 'repos/' + repository;
@@ -99,26 +155,9 @@ export async function collect(repository, number, request = ghRequest) {
     // GraphQL hides the classic rule from tokens without admin access: people
     // get null, and app and workflow tokens get a FORBIDDEN error. The branch
     // summary still lists its required checks, though not its strict policy.
-    const branch = await request(root + '/branches/' + endpointPart(pr.base.ref));
-    const summary = branch.available && branch.data.protected === true ? branch.data.protection : null;
-    const summaryChecks = summary?.required_status_checks;
-    classic = branch.available && branch.data.protected === false ||
-      summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === 'off' ? {available: true, strict: false, checks: []} :
-      summary?.enabled === true && Array.isArray(summaryChecks?.checks) ?
-      {available: true, strict: undefined, fromSummary: true, checks: summaryChecks.checks.map(check => classicCheck(check.context, check.app_id))} :
-      {available: false, error: 'No classic rule was returned; the base branch is protected or its protection state could not be confirmed.'};
+    classic = summaryPolicy(await request(root + '/branches/' + endpointPart(pr.base.ref)), classicCheck);
   }
-  const rulesResult = await pages(request, root + '/rules/branches/' + endpointPart(pr.base.ref));
-  const malformedRule = rulesResult.available && rulesResult.data.some(rule =>
-    rule.type === 'required_status_checks' && !Array.isArray(rule.parameters?.required_status_checks));
-  const rulesets = malformedRule ? {available: false, error: 'A required-check rule did not return its checks.'} : rulesResult.available ? {available: true, checks: rulesResult.data
-    .filter(rule => rule.type === 'required_status_checks')
-    .flatMap(rule => (rule.parameters?.required_status_checks || []).map(check => ({
-      context: check.context, appId: check.integration_id || null,
-      source: (rule.ruleset_source || repository) + ' ruleset ' + rule.ruleset_id,
-      sourceType: rule.ruleset_source_type || 'Repository',
-      url: !rule.ruleset_source_type || rule.ruleset_source_type === 'Repository' ? 'https://github.com/' + (rule.ruleset_source || repository) + '/rules/' + rule.ruleset_id : null
-    })))} : rulesResult;
+  const {rulesResult, rulesets} = await rulesetPolicy(request, root, repository, pr.base.ref);
   const statusRules = rulesResult.available ? rulesResult.data.filter(rule => rule.type === 'required_status_checks') : [];
   const strictUnknown = classic.available && classic.checks.length > 0 && typeof classic.strict !== 'boolean' || statusRules.some(rule => typeof rule.parameters?.strict_required_status_checks_policy !== 'boolean');
   const strict = classic.strict === true || statusRules.some(rule => rule.parameters?.strict_required_status_checks_policy === true);

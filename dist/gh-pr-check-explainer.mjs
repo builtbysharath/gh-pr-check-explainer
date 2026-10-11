@@ -9296,19 +9296,25 @@ function matchPatterns(value, patterns) {
   }
   return included;
 }
+function branchAllowed(config, branch) {
+  if (config === null || config === void 0) return true;
+  if (typeof config !== "object" || Array.isArray(config) || config.branches && config["branches-ignore"]) return null;
+  const patterns = config.branches || config["branches-ignore"];
+  if (!patterns) return true;
+  const match = matchPatterns(branch, patterns);
+  return match === null ? null : config.branches ? match : !match;
+}
 function eventFilter(event, config, snapshot) {
   if (config === null || config === void 0) return { state: "eligible" };
   if (typeof config !== "object" || Array.isArray(config)) return { state: "unknown" };
   if (config.types || config.tags || config["tags-ignore"]) return { state: "unknown" };
   const reasons = [];
-  if (config.branches && config["branches-ignore"]) return { state: "unknown" };
   if (config.paths && config["paths-ignore"]) return { state: "unknown" };
   const branch = event === "push" ? snapshot.pr.headBranch : snapshot.pr.baseBranch;
   if (config.branches || config["branches-ignore"]) {
-    if (!branch) return { state: "unknown" };
-    const match = matchPatterns(branch, config.branches || config["branches-ignore"]);
-    if (match === null) return { state: "unknown" };
-    if (config.branches ? !match : match) reasons.push("The " + event + " branch filter excludes " + branch + ".");
+    const allowed = branch ? branchAllowed(config, branch) : null;
+    if (allowed === null) return { state: "unknown" };
+    if (!allowed) reasons.push("The " + event + " branch filter excludes " + branch + ".");
   }
   if (config.paths || config["paths-ignore"]) {
     if (event === "push") return { state: "unknown" };
@@ -9321,12 +9327,14 @@ function eventFilter(event, config, snapshot) {
   }
   return { state: reasons.length ? "excluded" : "eligible", reasons };
 }
+function workflowEvents(on) {
+  if (typeof on === "string") return { [on]: null };
+  if (Array.isArray(on)) return Object.fromEntries(on.map((event) => [event, null]));
+  return on && typeof on === "object" ? on : null;
+}
 function workflowFilter(workflow, snapshot) {
-  let events;
-  if (typeof workflow.on === "string") events = { [workflow.on]: null };
-  else if (Array.isArray(workflow.on)) events = Object.fromEntries(workflow.on.map((event) => [event, null]));
-  else if (workflow.on && typeof workflow.on === "object") events = workflow.on;
-  else return { state: "unknown" };
+  const events = workflowEvents(workflow.on);
+  if (!events) return { state: "unknown" };
   const relevant = Object.entries(events).filter(([event]) => PR_EVENTS.has(event));
   if (!relevant.length) return { state: "unsupported_event", reasons: ["This workflow has no event that can satisfy ordinary PR required checks."] };
   const results = relevant.map(([event, config]) => {
@@ -9537,10 +9545,183 @@ function analyze(snapshot) {
     limitations
   };
 }
+var ACTIONS_APP = 15368;
+var PR_TRIGGERS = ["pull_request", "pull_request_target"];
+var AUDIT_ORDER = ["risk", "unknown", "ok", "not_checked"];
+function prReach(config, branch) {
+  const allowed = branchAllowed(config, branch);
+  if (allowed === null) return "unknown";
+  if (!allowed) return "branch";
+  const types = config?.types === void 0 ? null : [config.types].flat();
+  if (types && !["opened", "synchronize"].every((type) => types.includes(type))) return "types";
+  return config?.paths || config?.["paths-ignore"] ? "paths" : "all";
+}
+function pushReach(config) {
+  if (config === null || config === void 0) return "most";
+  if (typeof config !== "object" || Array.isArray(config) || config.branches && config["branches-ignore"]) return "unknown";
+  if (!config.branches && !config["branches-ignore"]) return config.tags || config["tags-ignore"] ? "none" : "most";
+  if (config["branches-ignore"]) return "most";
+  if (Array.isArray(config.branches) && config.branches.every((pattern) => typeof pattern === "string" && !/[*?[\]+!]/.test(pattern))) return "none";
+  return "some";
+}
+function hasFilters(config) {
+  return config !== null && config !== void 0 && (typeof config !== "object" || Array.isArray(config) || ["branches", "branches-ignore", "tags", "tags-ignore", "paths", "paths-ignore"].some((key) => config[key] !== void 0));
+}
+function queueReach(events, branch) {
+  if (Object.hasOwn(events, "merge_group")) return branchAllowed(events.merge_group, branch);
+  if (!Object.hasOwn(events, "push")) return false;
+  const reach = pushReach(events.push);
+  if (reach === "unknown" || events.push?.paths || events.push?.["paths-ignore"]) return null;
+  return reach !== "none" && branchAllowed(events.push, "gh-readonly-queue/" + branch + "/pr-1-" + "0".repeat(40));
+}
+function prTier(file, branch) {
+  const events = workflowEvents(file.on);
+  if (!events) return "broad";
+  let tier = "none";
+  for (const [event, config] of Object.entries(events)) {
+    const reach = PR_TRIGGERS.includes(event) ? prReach(config, branch) : event === "push" ? pushReach(config) : PR_EVENTS.has(event) ? "unknown" : "none";
+    if (!["branch", "some", "none"].includes(reach)) return "broad";
+    if (reach !== "none") tier = "narrow";
+  }
+  return tier;
+}
+function auditCheck(required, workflows, snapshot) {
+  const { branch } = snapshot;
+  const codes = [], details = [];
+  const evidence = [{
+    label: "Required by " + required.sources.join(", "),
+    url: required.url || (required.sourceType && required.sourceType !== "Repository" ? null : "https://github.com/" + snapshot.repository + "/rules"),
+    detail: required.context
+  }];
+  const row = { ...required, state: "unknown", codes, details, evidence, docs: DOCS };
+  const risk = (code, text) => {
+    codes.push(code);
+    details.push(text);
+  };
+  const finish = (unknown2 = false, ok = "") => {
+    if (codes.length) {
+      row.state = "risk";
+      if (!required.appId) details.push("The rule accepts this name from any app or commit status, so another service could still report it.");
+    } else if (unknown2) {
+      row.state = "unknown";
+    } else {
+      row.state = "ok";
+      details.unshift(ok);
+    }
+    return row;
+  };
+  if (required.appId && required.appId !== ACTIONS_APP) {
+    row.state = "not_checked";
+    details.push("The rule requires GitHub App " + required.appId + ", so GitHub Actions workflows are not compared with it.");
+    return row;
+  }
+  if (!snapshot.workflows?.available) {
+    details.push("The workflows on " + branch + " could not be read.");
+    return row;
+  }
+  const producers = workflows.filter((file2) => {
+    const events2 = workflowEvents(file2.on);
+    return file2.names.some((job) => job.name === required.context) && (!events2 || Object.keys(events2).some((event2) => event2 !== "workflow_call"));
+  });
+  if (!producers.length) {
+    evidence.push({ label: ".github/workflows", url: "https://github.com/" + snapshot.repository + "/tree/" + snapshot.sha + "/.github/workflows", detail: "Workflows on " + branch });
+    const dynamic = workflows.some((file2) => file2.dynamic);
+    if (required.appId === ACTIONS_APP && !dynamic) {
+      risk("no_producer", "No workflow on " + branch + " has a job that reports this name, so pull requests wait for it.");
+      return finish();
+    }
+    const sources = [...required.appId ? [] : ["another app or a commit status"], ...dynamic ? ["a job name that could not be expanded"] : []];
+    details.push("No workflow job on " + branch + " reports this name. It may come from " + sources.join(", or ") + ".");
+    return row;
+  }
+  for (const file2 of producers) {
+    evidence.push({ label: file2.path, url: file2.url + "#L" + file2.names.find((job) => job.name === required.context).line, detail: "Job that reports " + required.context });
+  }
+  const tiers = producers.map((file2) => prTier(file2, branch));
+  const broad = producers.filter((file2, index) => tiers[index] === "broad");
+  const reporting = broad.length ? broad : producers.filter((file2, index) => tiers[index] === "narrow");
+  if (reporting.length > 1) {
+    risk("ambiguous_producers", "Several workflows can report a check with this name: " + reporting.map((file2) => file2.path).join(", ") + ". GitHub does not document which of their runs a required check uses, so one workflow's result can stand in for another's. Unique job names make each a separate check.");
+    return finish();
+  }
+  if (!reporting.length) {
+    codes.push("workflow_has_no_pr_event");
+    details.push(...producers.map((file2) => file2.path + " runs only on " + Object.keys(workflowEvents(file2.on)).join(", ") + ", and these runs do not satisfy required checks on pull requests."));
+    return finish();
+  }
+  const file = reporting[0];
+  const events = workflowEvents(file.on);
+  if (!events) {
+    details.push("The triggers of " + file.path + " could not be read.");
+    return row;
+  }
+  evidence.push({ label: file.path + " triggers", url: file.url + "#L" + file.line, detail: Object.keys(events).join(", ") });
+  const prEvents = PR_TRIGGERS.filter((event2) => Object.hasOwn(events, event2));
+  const reaches = prEvents.map((event2) => prReach(events[event2], branch));
+  const event = (state) => prEvents[reaches.indexOf(state)];
+  const hasPush = Object.hasOwn(events, "push");
+  const forks = hasPush && !hasFilters(events.push) ? " Its push trigger still reports the check for branches in this repository, so this mainly affects pull requests from forks." : "";
+  let unknown = false;
+  if (reaches.includes("all")) {
+  } else if (reaches.includes("unknown")) {
+    unknown = true;
+    details.push("The " + event("unknown") + " filters in " + file.path + " cannot be fully evaluated.");
+  } else if (reaches.includes("paths")) {
+    risk("workflow_path_filtered", "The " + event("paths") + " path filter in " + file.path + " skips pull requests that change only other files, and they wait for this check." + forks);
+  } else if (reaches.includes("types")) {
+    risk("workflow_types_filtered", "The " + event("types") + " types filter in " + file.path + " leaves out opened or synchronize, so some pull requests or new commits never get this check." + forks);
+  } else if (reaches.length) {
+    risk("workflow_branch_filtered", "The " + prEvents[0] + " branch filter in " + file.path + " excludes " + branch + ", so pull requests into " + branch + " never get this check." + forks);
+  } else if (hasPush && pushReach(events.push) !== "unknown") {
+    risk("workflow_push_only", file.path + " runs on push but not on pull_request, so pull requests from forks never get this check" + (pushReach(events.push) === "some" ? ", and branches outside its push filter don't either" : "") + "." + (events.push?.paths || events.push?.["paths-ignore"] ? " Its push path filter also skips pushes that change only other files." : ""));
+  } else {
+    unknown = true;
+    details.push("Whether the " + Object.keys(events).join(", ") + " triggers of " + file.path + " report on pull requests is not evaluated.");
+  }
+  const queue = snapshot.mergeQueue?.enabled === true;
+  if (queue) {
+    const queued = queueReach(events, branch);
+    if (queued === null) {
+      unknown = true;
+      details.push("Whether " + file.path + " runs in the merge queue cannot be fully evaluated.");
+    } else if (!queued) {
+      risk("merge_queue_not_triggered", branch + " uses a merge queue, but " + (Object.hasOwn(events, "merge_group") ? "the merge_group branch filter in " + file.path + " excludes it" : file.path + " has no merge_group trigger") + ", so this check is never reported for queued pull requests and they fail to merge.");
+    }
+  }
+  return finish(unknown, "Reported by " + file.path + " on pull requests" + (queue ? " and in the merge queue" : "") + ".");
+}
+function audit(snapshot) {
+  if (snapshot?.schemaVersion !== 1 || snapshot.kind !== "repository" || typeof snapshot.repository !== "string" || typeof snapshot.branch !== "string" || typeof snapshot.sha !== "string") throw new Error("Not a version 1 repository snapshot.");
+  const limitations = [];
+  for (const field of ["rulesets", "classic", "mergeQueue", "workflows"]) {
+    if (!snapshot[field]?.available) limitations.push(field + ": " + (snapshot[field]?.error || "not observed"));
+  }
+  const workflows = (snapshot.workflows?.data || []).map((file) => workflowInfo(file, snapshot.repository, snapshot.sha));
+  for (const workflow of workflows.filter((item) => item.error)) limitations.push(workflow.path + ": " + workflow.error);
+  if (workflows.some((file) => file.dynamic)) limitations.push("Dynamic matrix names and reusable workflows are not expanded; checks they report may be listed as unknown.");
+  const checks = policyChecks(snapshot).map((required) => auditCheck(required, workflows, snapshot)).sort((a, b) => AUDIT_ORDER.indexOf(a.state) - AUDIT_ORDER.indexOf(b.state));
+  const incomplete = limitations.some((text) => /^(rulesets|classic|mergeQueue|workflows):/.test(text));
+  const overall = checks.some((check) => check.state === "risk") ? "risks" : incomplete || checks.some((check) => check.state === "unknown") ? "unknown" : checks.length ? "ok" : "none";
+  return {
+    schemaVersion: 1,
+    kind: "audit",
+    repository: snapshot.repository,
+    branch: snapshot.branch,
+    sha: snapshot.sha,
+    collectedAt: snapshot.collectedAt,
+    mergeQueue: snapshot.mergeQueue?.available ? snapshot.mergeQueue.enabled ? "in use" : "not in use" : "unknown",
+    overall,
+    scope: "Required status checks on " + snapshot.branch + " compared with the workflows on that branch. Job conditions, workflow changes inside a pull request, and other merge rules are not evaluated.",
+    checks,
+    limitations
+  };
+}
 
 // src/github.js
 import { execFileSync } from "node:child_process";
 var QUERY = "query($owner:String!,$repo:String!,$number:Int!) { repository(owner:$owner,name:$repo) { pullRequest(number:$number) { baseRef { branchProtectionRule { requiresStatusChecks requiresStrictStatusChecks requiredStatusChecks { context app { databaseId slug } } } } } } }";
+var MERGE_QUEUE_QUERY = "query($owner:String!,$repo:String!,$branch:String!) { repository(owner:$owner,name:$repo) { mergeQueue(branch:$branch) { id } } }";
+var REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 function endpointPart(value) {
   return encodeURIComponent(value);
 }
@@ -9622,8 +9803,57 @@ async function readWorkflows(request, root, ref) {
   }
   return { available: true, data: contents };
 }
+function summaryPolicy(branch, classicCheck) {
+  const summary = branch.available && branch.data.protected === true ? branch.data.protection : null;
+  const summaryChecks = summary?.required_status_checks;
+  return branch.available && branch.data.protected === false || summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary?.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => classicCheck(check.context, check.app_id)) } : { available: false, error: "No classic rule was returned; the base branch is protected or its protection state could not be confirmed." };
+}
+async function rulesetPolicy(request, root, repository, branch) {
+  const rulesResult = await pages(request, root + "/rules/branches/" + endpointPart(branch));
+  const malformedRule = rulesResult.available && rulesResult.data.some((rule) => rule.type === "required_status_checks" && !Array.isArray(rule.parameters?.required_status_checks));
+  const rulesets = malformedRule ? { available: false, error: "A required-check rule did not return its checks." } : rulesResult.available ? { available: true, checks: rulesResult.data.filter((rule) => rule.type === "required_status_checks").flatMap((rule) => (rule.parameters?.required_status_checks || []).map((check) => ({
+    context: check.context,
+    appId: check.integration_id || null,
+    source: (rule.ruleset_source || repository) + " ruleset " + rule.ruleset_id,
+    sourceType: rule.ruleset_source_type || "Repository",
+    url: !rule.ruleset_source_type || rule.ruleset_source_type === "Repository" ? "https://github.com/" + (rule.ruleset_source || repository) + "/rules/" + rule.ruleset_id : null
+  }))) } : rulesResult;
+  return { rulesResult, rulesets };
+}
+async function collectRepository(repository, branch, request = ghRequest) {
+  if (!REPOSITORY.test(repository) || repository.startsWith("-")) throw new Error("Use --audit OWNER/REPO.");
+  if (branch !== void 0 && (typeof branch !== "string" || !branch || branch.length > 255 || /[\u0000-\u0020\u007f~^:?*[\\]/.test(branch))) throw new Error("Use a valid branch name with --branch.");
+  const [owner, repo] = repository.split("/");
+  const root = "repos/" + repository;
+  const info = await request(root);
+  if (!info.available) throw new Error(info.error);
+  const name = branch || info.data.default_branch;
+  const tip = await request(root + "/branches/" + endpointPart(name));
+  if (!tip.available) throw new Error("Could not read branch " + name + ": " + tip.error);
+  const sha = tip.data.commit?.sha;
+  if (typeof sha !== "string" || !sha) throw new Error("GitHub did not return the commit of branch " + name + ".");
+  const classic = summaryPolicy(tip, (context, appId) => ({ context, appId: appId || null, source: "classic branch protection", url: info.data.html_url + "/settings/branches" }));
+  const { rulesResult, rulesets } = await rulesetPolicy(request, root, repository, name);
+  const queue = await request("graphql", { query: MERGE_QUEUE_QUERY, variables: { owner, repo, branch: name } });
+  const queueRepository = queue.available ? queue.data?.data?.repository : void 0;
+  const mergeQueue = rulesResult.available && rulesResult.data.some((rule) => rule.type === "merge_queue") ? { available: true, enabled: true } : queueRepository && typeof queueRepository === "object" ? { available: true, enabled: queueRepository.mergeQueue != null } : { available: false, error: queue.error || "GitHub did not say whether the branch uses a merge queue." };
+  const workflows = await readWorkflows(request, root, sha);
+  return {
+    schemaVersion: 1,
+    kind: "repository",
+    repository,
+    branch: name,
+    sha,
+    url: info.data.html_url,
+    collectedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    classic,
+    rulesets,
+    mergeQueue,
+    workflows
+  };
+}
 async function collect(repository, number, request = ghRequest) {
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || repository.startsWith("-") || !Number.isSafeInteger(number) || number < 1) throw new Error("Use --repo OWNER/REPO and a positive --pr number.");
+  if (!REPOSITORY.test(repository) || repository.startsWith("-") || !Number.isSafeInteger(number) || number < 1) throw new Error("Use --repo OWNER/REPO and a positive --pr number.");
   const [owner, repo] = repository.split("/");
   const root = "repos/" + repository;
   const pull = await request(root + "/pulls/" + number);
@@ -9641,20 +9871,9 @@ async function collect(repository, number, request = ghRequest) {
       checks: rule.requiresStatusChecks ? rule.requiredStatusChecks.map((check) => classicCheck(check.context, check.app?.databaseId)) : []
     };
   } else {
-    const branch = await request(root + "/branches/" + endpointPart(pr.base.ref));
-    const summary = branch.available && branch.data.protected === true ? branch.data.protection : null;
-    const summaryChecks = summary?.required_status_checks;
-    classic = branch.available && branch.data.protected === false || summary?.enabled === false || summary?.enabled === true && summaryChecks?.enforcement_level === "off" ? { available: true, strict: false, checks: [] } : summary?.enabled === true && Array.isArray(summaryChecks?.checks) ? { available: true, strict: void 0, fromSummary: true, checks: summaryChecks.checks.map((check) => classicCheck(check.context, check.app_id)) } : { available: false, error: "No classic rule was returned; the base branch is protected or its protection state could not be confirmed." };
+    classic = summaryPolicy(await request(root + "/branches/" + endpointPart(pr.base.ref)), classicCheck);
   }
-  const rulesResult = await pages(request, root + "/rules/branches/" + endpointPart(pr.base.ref));
-  const malformedRule = rulesResult.available && rulesResult.data.some((rule2) => rule2.type === "required_status_checks" && !Array.isArray(rule2.parameters?.required_status_checks));
-  const rulesets = malformedRule ? { available: false, error: "A required-check rule did not return its checks." } : rulesResult.available ? { available: true, checks: rulesResult.data.filter((rule2) => rule2.type === "required_status_checks").flatMap((rule2) => (rule2.parameters?.required_status_checks || []).map((check) => ({
-    context: check.context,
-    appId: check.integration_id || null,
-    source: (rule2.ruleset_source || repository) + " ruleset " + rule2.ruleset_id,
-    sourceType: rule2.ruleset_source_type || "Repository",
-    url: !rule2.ruleset_source_type || rule2.ruleset_source_type === "Repository" ? "https://github.com/" + (rule2.ruleset_source || repository) + "/rules/" + rule2.ruleset_id : null
-  }))) } : rulesResult;
+  const { rulesResult, rulesets } = await rulesetPolicy(request, root, repository, pr.base.ref);
   const statusRules = rulesResult.available ? rulesResult.data.filter((rule2) => rule2.type === "required_status_checks") : [];
   const strictUnknown = classic.available && classic.checks.length > 0 && typeof classic.strict !== "boolean" || statusRules.some((rule2) => typeof rule2.parameters?.strict_required_status_checks_policy !== "boolean");
   const strict = classic.strict === true || statusRules.some((rule2) => rule2.parameters?.strict_required_status_checks_policy === true);
@@ -9795,10 +10014,30 @@ function html(report, { example = false } = {}) {
   const cards = report.checks.map((check) => '<article><div class="row"><h2>' + escape(check.context) + '</h2><span class="badge ' + check.state + '">' + check.state + '</span></div><p class="code">' + escape(check.code.replaceAll("_", " ")) + "</p>" + check.details.map((detail) => "<p>" + escape(detail) + "</p>").join("") + "<details open><summary>" + (example ? "Example evidence" : "Evidence") + "</summary><ul>" + check.evidence.map((item) => "<li>" + (example ? "<span>Example evidence: " + escape(item.label) + "</span>" : link(item)) + (item.detail ? "<small>" + escape(item.detail) + "</small>" : "") + "</li>").join("") + "</ul></details></article>").join("");
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-` + scriptHash + `'; connect-src 'none'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><title>PR Check Explainer \xB7 ` + escape(report.repository) + "</title><style>body{margin:0;background:#f5f7fa;color:#172235;font:16px/1.6 system-ui,sans-serif}main{max-width:880px;margin:44px auto;padding:0 24px}header{margin-bottom:26px}h1{font-size:34px;letter-spacing:-1px;margin:4px 0}h2{font-size:20px;margin:0}.eyebrow{color:#52637c;font-size:12px;letter-spacing:2px;text-transform:uppercase}.verdict{font-size:24px;font-weight:650;margin:16px 0 4px}.row{display:flex;justify-content:space-between;gap:16px;align-items:start}.badge{font-size:12px;padding:4px 10px;border-radius:12px;background:#e8edf4}.blocked{background:#ffebe8;color:#922d21}.unknown{background:#fff2d0;color:#795812}.satisfied{background:#e3f4e9;color:#256343}article,.notes{background:white;border:1px solid #dce3eb;border-radius:14px;padding:22px;margin:14px 0}.code{font-size:13px;color:#68748a;text-transform:uppercase;letter-spacing:1px}a{color:#174bb6}small{display:block;color:#68748a;overflow-wrap:anywhere}li{margin:10px 0}summary{cursor:pointer;font-weight:600}footer{color:#68748a;font-size:13px;margin:28px 0}.sha{font-family:monospace;overflow-wrap:anywhere;font-size:13px}textarea{width:100%;height:180px;box-sizing:border-box;border:1px solid #dce3eb;border-radius:8px;padding:12px;font:12px/1.5 monospace;background:#fbfcfe}@media(max-width:500px){main{margin:22px auto;padding:0 14px}h1{font-size:28px}.row{display:block}.badge{display:inline-block;margin-top:8px}}button{font:inherit;cursor:pointer;border:1px solid #174bb6;border-radius:8px;background:#174bb6;color:white;padding:8px 14px;margin:10px 0}button:focus-visible,a:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #5987e2;outline-offset:3px}nav{display:flex;flex-wrap:wrap;gap:20px;margin-bottom:20px}.copy-status{min-height:1.6em;margin:4px 0}</style><main>" + (example ? '<nav aria-label="Example report navigation"><a href="./">Back to overview</a><a href="./#try">Try on your PR</a></nav><p>This is a synthetic example. To analyze your own PR, run the read-only CLI on your computer.</p>' : "") + '<header><div class="eyebrow">PR Check Explainer \xB7 ' + (example ? "synthetic example" : "evidence report") + "</div><h1>" + escape(report.repository) + " #" + report.number + '</h1><p class="verdict">' + VERDICTS[report.overall] + "</p>" + (report.draft ? "<p><strong>Draft PR</strong> \xB7 Results are compared with merge-time requirements. Missing results may wait until the PR is ready.</p>" : "") + '<div class="sha">' + escape(report.evaluation + " \xB7 " + report.evaluatedSha) + "</div><p>" + escape(report.scope) + "</p></header>" + cards + (report.checks.length ? "" : "<article><p>No required status-check contexts were returned by the observed policies.</p></article>") + (report.limitations.length ? '<aside class="notes"><h2>Coverage notes</h2><ul>' + report.limitations.map((note) => "<li>" + escape(note) + "</li>").join("") + "</ul></aside>" : "") + '<details class="notes"><summary>Copyable Markdown report</summary><p>Select the text below to copy it, or use the button.</p><textarea id="markdown-report" readonly aria-label="Markdown report">' + escape(markdown(report, { example })) + '</textarea><button type="button" data-copy-target="markdown-report" data-copy-status="copy-status" aria-describedby="copy-status">Copy Markdown</button><p id="copy-status" class="copy-status" role="status" aria-live="polite"></p></details><footer>Snapshot: ' + escape(report.collectedAt || "synthetic demonstration") + ". This report does not change repository settings or run workflows.</footer></main><script>" + copyScript + "</script></html>";
 }
+var AUDIT_VERDICTS = { risks: "Some required checks can get stuck", unknown: "Some required checks could not be fully checked", ok: "No stuck-check risks found", none: "No required status checks found" };
+function auditMarkdown(report) {
+  const lines = [
+    "# PR Check Explainer audit",
+    "",
+    report.repository + " \xB7 " + report.branch + " at " + report.sha,
+    "",
+    AUDIT_VERDICTS[report.overall],
+    "",
+    "Merge queue: " + report.mergeQueue,
+    "",
+    report.scope
+  ];
+  for (const check of report.checks) {
+    lines.push("", "## " + check.context + ": " + check.state.replace("_", " "), "", ...check.details.map((detail) => "- " + detail));
+    for (const item of check.evidence) lines.push("- Evidence: " + item.label + (item.detail ? " (" + item.detail + ")" : "") + (item.url ? ": " + item.url : ""));
+  }
+  if (report.limitations.length) lines.push("", "## Coverage notes", "", ...report.limitations.map((note) => "- " + note));
+  return lines.join("\n") + "\n";
+}
 
 // src/cli-options.js
 function parseArguments(args) {
-  const options = {}, allowed = /* @__PURE__ */ new Set(["--repo", "--pr", "--snapshot", "--format", "--output", "--save-snapshot"]);
+  const options = {}, allowed = /* @__PURE__ */ new Set(["--repo", "--pr", "--snapshot", "--format", "--output", "--save-snapshot", "--audit", "--branch"]);
   let prUrl;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -9810,6 +10049,8 @@ function parseArguments(args) {
       options[arg] = args[++i];
     }
   }
+  if (options["--audit"] && (prUrl || options["--repo"] || options["--pr"] || options["--snapshot"])) throw new Error("--audit cannot be combined with a PR URL, --repo, --pr or --snapshot.");
+  if (options["--branch"] && !options["--audit"]) throw new Error("--branch needs --audit.");
   if (prUrl) {
     if (options["--repo"] || options["--pr"] || options["--snapshot"]) throw new Error("A PR URL cannot be combined with --repo, --pr or --snapshot.");
     const match = /^https:\/\/github\.com\/([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})\/([A-Za-z0-9_.-]{1,100})\/pull\/([1-9][0-9]*)\/?$/.exec(prUrl);
@@ -9829,13 +10070,16 @@ var help = [
   "gh-pr-check-explainer --repo OWNER/REPO --pr NUMBER [--format text|json|markdown|html]",
   "gh-pr-check-explainer https://github.com/OWNER/REPO/pull/NUMBER [--format html] [--output FILE]",
   "gh-pr-check-explainer --snapshot FILE [--format html] [--output FILE]",
+  "gh-pr-check-explainer --audit OWNER/REPO [--branch NAME] [--format text|json|markdown]",
   "",
+  "--audit OWNER/REPO     Find required checks that pull requests into a branch would wait for",
+  "--branch NAME          Branch to audit (default: the default branch)",
   "--save-snapshot FILE   Save collected evidence for repeatable local analysis",
   "--output FILE          Write the report to a file",
   "--help                 Show this help",
   "",
   "Live mode uses existing gh authentication and read-only requests.",
-  "Exit codes: 0 = observed checks satisfied/no requirements, 1 = blocker, 2 = incomplete evidence/error.",
+  "Exit codes: 0 = observed checks satisfied/no requirements, 1 = blocker (audit: a risk), 2 = incomplete evidence/error.",
   "The verdict covers required status checks, not overall merge readiness."
 ].join("\n");
 try {
@@ -9846,6 +10090,8 @@ try {
     const options = parseArguments(args);
     const format = options["--format"] || "text";
     if (!["text", "json", "markdown", "html"].includes(format)) throw new Error("Unsupported report format.");
+    const auditFormats = "Audit reports support text, markdown and json.";
+    if (options["--audit"] && format === "html") throw new Error(auditFormats);
     const paths = ["--snapshot", "--output", "--save-snapshot"].filter((key) => options[key]);
     for (let i = 0; i < paths.length; i++) for (let j = i + 1; j < paths.length; j++) {
       const left = options[paths[i]], right = options[paths[j]];
@@ -9856,13 +10102,14 @@ try {
       }
       if (same2) throw new Error("Snapshot input, saved evidence and report output must be different files.");
     }
-    const snapshot = options["--snapshot"] ? JSON.parse(readFileSync(options["--snapshot"], "utf8")) : await collect(options["--repo"] || "", Number(options["--pr"]));
+    const snapshot = options["--snapshot"] ? JSON.parse(readFileSync(options["--snapshot"], "utf8")) : options["--audit"] ? await collectRepository(options["--audit"], options["--branch"]) : await collect(options["--repo"] || "", Number(options["--pr"]));
     if (options["--save-snapshot"]) writePrivate(options["--save-snapshot"], JSON.stringify(snapshot, null, 2) + "\n");
-    const report = analyze(snapshot);
-    const output = format === "json" ? JSON.stringify(report, null, 2) + "\n" : format === "html" ? html(report) : markdown(report);
+    const report = snapshot?.kind === "repository" ? audit(snapshot) : analyze(snapshot);
+    if (report.kind === "audit" && format === "html") throw new Error(auditFormats);
+    const output = format === "json" ? JSON.stringify(report, null, 2) + "\n" : report.kind === "audit" ? auditMarkdown(report) : format === "html" ? html(report) : markdown(report);
     if (options["--output"]) writePrivate(options["--output"], output);
     else process.stdout.write(output);
-    process.exitCode = report.overall === "blocked" ? 1 : report.overall === "unknown" ? 2 : 0;
+    process.exitCode = ["blocked", "risks"].includes(report.overall) ? 1 : report.overall === "unknown" ? 2 : 0;
   }
 } catch (error) {
   console.error("PR Check Explainer: " + error.message);

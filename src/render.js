@@ -53,3 +53,14 @@ export function html(report, {example = false} = {}) {
     '<details class="notes"><summary>Copyable Markdown report</summary><p>Select the text below to copy it, or use the button.</p><textarea id="markdown-report" readonly aria-label="Markdown report">' + escape(markdown(report, {example})) + '</textarea><button type="button" data-copy-target="markdown-report" data-copy-status="copy-status" aria-describedby="copy-status">Copy Markdown</button><p id="copy-status" class="copy-status" role="status" aria-live="polite"></p></details>' +
     '<footer>Snapshot: ' + escape(report.collectedAt || 'synthetic demonstration') + '. This report does not change repository settings or run workflows.</footer></main><script>' + copyScript + '</script></html>';
 }
+const AUDIT_VERDICTS = {risks: 'Some required checks can get stuck', unknown: 'Some required checks could not be fully checked', ok: 'No stuck-check risks found', none: 'No required status checks found'};
+export function auditMarkdown(report) {
+  const lines = ['# PR Check Explainer audit', '', report.repository + ' · ' + report.branch + ' at ' + report.sha, '', AUDIT_VERDICTS[report.overall], '',
+    'Merge queue: ' + report.mergeQueue, '', report.scope];
+  for (const check of report.checks) {
+    lines.push('', '## ' + check.context + ': ' + check.state.replace('_', ' '), '', ...check.details.map(detail => '- ' + detail));
+    for (const item of check.evidence) lines.push('- Evidence: ' + item.label + (item.detail ? ' (' + item.detail + ')' : '') + (item.url ? ': ' + item.url : ''));
+  }
+  if (report.limitations.length) lines.push('', '## Coverage notes', '', ...report.limitations.map(note => '- ' + note));
+  return lines.join('\n') + '\n';
+}
