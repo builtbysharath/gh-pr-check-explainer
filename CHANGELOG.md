@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0: GitHub Action and branch audit, 2026-10-13
 
 - `--audit OWNER/REPO [--branch NAME]` compares a branch's required checks with its workflows before any pull request gets stuck. It flags `paths`, `branches` and `types` filters on the reporting workflow, push-only workflows, workflows with no pull request event, required names that no workflow reports, names that several workflows report, and merge queues that the reporting workflow doesn't run for. Tried on 11 public repositories, 7 of them with merge queues.
 - GitHub Action: `uses: builtbysharath/gh-pr-check-explainer@v0` on `pull_request` writes the report to the job summary and posts one PR comment, kept up to date, when a required check can't report because of configuration. Outputs `verdict` and `stuck-checks`; `fail-on-stuck` can fail the job. Tested end to end on a repository with a classic-protection check and a ruleset check, both from path-filtered workflows.
