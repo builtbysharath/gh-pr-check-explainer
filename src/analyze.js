@@ -164,6 +164,7 @@ export function analyze(snapshot) {
   const workflows = (snapshot.workflows?.data || []).map(file => workflowInfo(file, snapshot.repository, snapshot.pr.headSha));
   const baseWorkflows = (snapshot.baseWorkflows?.data || []).map(file => workflowInfo(file, snapshot.repository, snapshot.pr.baseSha || snapshot.pr.baseBranch));
   for (const workflow of workflows.filter(item => item.error)) limitations.push(workflow.path + ': ' + workflow.error);
+  for (const workflow of baseWorkflows.filter(item => item.error)) limitations.push('Base branch ' + workflow.path + ': ' + workflow.error);
   const checks = policyChecks(snapshot).map(required => {
     const matching = runs.filter(run => run.name === required.context);
     const correctSource = matching.filter(run => !required.appId || run.appId === required.appId);

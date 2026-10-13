@@ -9297,6 +9297,7 @@ function analyze(snapshot) {
   const workflows = (snapshot.workflows?.data || []).map((file) => workflowInfo(file, snapshot.repository, snapshot.pr.headSha));
   const baseWorkflows = (snapshot.baseWorkflows?.data || []).map((file) => workflowInfo(file, snapshot.repository, snapshot.pr.baseSha || snapshot.pr.baseBranch));
   for (const workflow of workflows.filter((item) => item.error)) limitations.push(workflow.path + ": " + workflow.error);
+  for (const workflow of baseWorkflows.filter((item) => item.error)) limitations.push("Base branch " + workflow.path + ": " + workflow.error);
   const checks = policyChecks(snapshot).map((required) => {
     const matching = runs.filter((run2) => run2.name === required.context);
     const correctSource = matching.filter((run2) => !required.appId || run2.appId === required.appId);
@@ -9720,8 +9721,8 @@ function stuckChecks(report) {
   return report.checks.filter((check) => check.state === "blocked" && Object.hasOwn(STUCK, check.cause));
 }
 function conclusive(snapshot, report) {
-  return ["rulesets", "classic", "headChecks", "headStatuses", "files", "runs", "workflows", "baseWorkflows"].every((field) => snapshot[field]?.available) && !report.checks.some((check) => check.state === "unknown") && // Workflow files that don't parse are listed by path.
-  !report.limitations.some((note) => note.startsWith(".github/workflows/"));
+  return ["rulesets", "classic", "headChecks", "headStatuses", "files", "runs", "workflows", "baseWorkflows"].every((field) => snapshot[field]?.available) && (!snapshot.pr.mergeSha || snapshot.mergeChecks?.available && snapshot.mergeStatuses?.available) && !report.checks.some((check) => check.state === "unknown") && // Workflow files that don't parse are listed by path.
+  !report.limitations.some((note) => /^(Base branch )?\.github\/workflows\//.test(note));
 }
 function commentBody(report, stuck, complete = true) {
   if (!stuck.length) {

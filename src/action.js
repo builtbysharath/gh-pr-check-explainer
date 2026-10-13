@@ -48,13 +48,14 @@ export function stuckChecks(report) {
   return report.checks.filter(check => check.state === 'blocked' && Object.hasOwn(STUCK, check.cause));
 }
 // Whether the evidence was complete enough to say that no required check is stuck.
-// Test-merge results are left out: GitHub is often still computing mergeability
-// when this runs, and the stuck causes come from the head commit's evidence.
+// Test-merge results count only once GitHub has a test-merge commit; it is often
+// still computing mergeability when this runs.
 function conclusive(snapshot, report) {
   return ['rulesets', 'classic', 'headChecks', 'headStatuses', 'files', 'runs', 'workflows', 'baseWorkflows'].every(field => snapshot[field]?.available) &&
+    (!snapshot.pr.mergeSha || snapshot.mergeChecks?.available && snapshot.mergeStatuses?.available) &&
     !report.checks.some(check => check.state === 'unknown') &&
     // Workflow files that don't parse are listed by path.
-    !report.limitations.some(note => note.startsWith('.github/workflows/'));
+    !report.limitations.some(note => /^(Base branch )?\.github\/workflows\//.test(note));
 }
 
 export function commentBody(report, stuck, complete = true) {
