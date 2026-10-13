@@ -1,7 +1,7 @@
 import {appendFileSync, readFileSync} from 'node:fs';
 import {analyze} from './analyze.js';
 import {collect} from './github.js';
-import {markdown} from './render.js';
+import {markdown, markdownText, markdownUrl} from './render.js';
 
 const API = 'https://api.github.com/';
 const MARKER = '<!-- gh-pr-check-explainer -->';
@@ -41,21 +41,27 @@ function escapeCommand(value) {
   return String(value).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
 }
 function cell(value) {
-  return String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
+  return markdownText(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
 }
 
 export function stuckChecks(report) {
   return report.checks.filter(check => check.state === 'blocked' && Object.hasOwn(STUCK, check.cause));
 }
+// Whether the evidence was complete enough to say that no required check is stuck.
+function conclusive(report) {
+  return !report.checks.some(check => check.state === 'unknown') &&
+    !report.limitations.some(note => /^(rulesets|classic|Workflow explanations unavailable)/.test(note));
+}
 
 export function commentBody(report, stuck) {
   if (!stuck.length) {
-    return MARKER + '\n### Required checks\n\nNo required check is stuck on workflow or rule configuration as of ' + report.headSha + '.\n';
+    return MARKER + '\n### Required checks\n\n' + (conclusive(report) ? 'No required check is stuck on workflow or rule configuration as of ' + report.headSha + '.' :
+      'Could not check the required checks for ' + report.headSha + ' because some evidence could not be read. The job summary for this run lists what is missing.') + '\n';
   }
   const rows = stuck.map(check => {
     const reasons = check.details.filter(detail => /filter excludes|no event|removes|renames|requires GitHub App|ran on /i.test(detail));
     const source = check.evidence.find(item => /\.ya?ml$/.test(item.label) || item.label.startsWith('Base branch producer'));
-    const where = source?.url ? ' ([' + cell(source.label.replace('Base branch producer: ', '')) + '](' + source.url + '))' : '';
+    const where = source?.url ? ' ([' + cell(source.label.replace('Base branch producer: ', '')) + '](' + markdownUrl(source.url) + '))' : '';
     return '| `' + cell(check.context) + '` | ' + cell(STUCK[check.cause].why + (reasons.length ? ' ' + reasons.join(' ') : '')) + where + ' | ' + cell(STUCK[check.cause].fix) + ' |';
   });
   return [MARKER, '### Required checks that will not report', '',
@@ -72,9 +78,14 @@ async function api(fetchImpl, token, method, endpoint, body) {
 }
 
 async function findComment(fetchImpl, token, repository, number) {
+  // Anyone can post a comment that starts with the marker, so only the token's own comment counts.
+  const viewer = await api(fetchImpl, token, 'POST', 'graphql', {query: '{ viewer { login } }'});
+  if (typeof viewer?.data?.viewer?.login !== 'string') throw new Error('GitHub did not say which account the token belongs to.');
+  const account = login => String(login).replace(/\[bot\]$/, '');
   for (let page = 1; page <= 20; page++) {
     const comments = await api(fetchImpl, token, 'GET', 'repos/' + repository + '/issues/' + number + '/comments?per_page=100&page=' + page);
-    const match = comments.find(comment => typeof comment.body === 'string' && comment.body.startsWith(MARKER));
+    const match = comments.find(comment => typeof comment.body === 'string' && comment.body.startsWith(MARKER) &&
+      account(comment.user?.login) === account(viewer.data.viewer.login));
     if (match) return match;
     if (comments.length < 100) return null;
   }

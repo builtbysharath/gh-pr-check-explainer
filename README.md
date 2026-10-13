@@ -50,6 +50,10 @@ Add this workflow as `.github/workflows/explain-required-checks.yml`. Give it no
 name: Explain required checks
 on:
   pull_request:
+# One run per pull request at a time, so two quick pushes can't post two comments.
+concurrency:
+  group: explain-required-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: read
   actions: read

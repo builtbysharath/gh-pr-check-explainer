@@ -15,15 +15,23 @@ function link(item) {
   } catch {}
   return escape(item.label);
 }
+// PR-controlled text, such as workflow and file names, must not become Markdown links or HTML.
+export function markdownText(value) {
+  return String(value ?? '').replace(/[\\[\]<>]/g, '\\$&');
+}
+// A URL whose path can hold any file name, with the characters that end or start a Markdown link percent-encoded.
+export function markdownUrl(url) {
+  return String(url).replace(/[()[\]<>\s"`]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+}
 const VERDICTS = {blocked: 'Required checks are blocking', unknown: 'More evidence is needed', satisfied: 'Observed required checks passed', none: 'No required status checks found'};
 export function markdown(report, {example = false} = {}) {
   const lines = ['# PR Check Explainer', '', report.repository + ' #' + report.number,
     '', VERDICTS[report.overall], ...(report.draft ? ['', 'Draft PR: results are compared with merge-time requirements.'] : []), '', 'Evaluated ' + report.evaluation + ': ' + report.evaluatedSha, '', report.scope];
   for (const check of report.checks) {
-    lines.push('', '## ' + check.context + ': ' + check.state, '', ...check.details.map(detail => '- ' + detail));
-    for (const item of check.evidence) lines.push('- ' + (example ? 'Example evidence: ' : 'Evidence: ') + item.label + (item.detail ? ' (' + item.detail + ')' : '') + (!example && item.url ? ': ' + item.url : ''));
+    lines.push('', '## ' + markdownText(check.context) + ': ' + check.state, '', ...check.details.map(detail => '- ' + markdownText(detail)));
+    for (const item of check.evidence) lines.push('- ' + (example ? 'Example evidence: ' : 'Evidence: ') + markdownText(item.label) + (item.detail ? ' (' + markdownText(item.detail) + ')' : '') + (!example && item.url ? ': ' + markdownUrl(item.url) : ''));
   }
-  if (report.limitations.length) lines.push('', '## Coverage notes', '', ...report.limitations.map(note => '- ' + note));
+  if (report.limitations.length) lines.push('', '## Coverage notes', '', ...report.limitations.map(note => '- ' + markdownText(note)));
   return lines.join('\n') + '\n';
 }
 export function html(report, {example = false} = {}) {

@@ -10,7 +10,7 @@ import {fetchRequest, run} from '../src/action.js';
 const WORKFLOW = "name: Build\non:\n  pull_request:\n    paths:\n      - 'src/**'\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n";
 
 // A fake GitHub API for a docs-only PR whose required `build` check comes from a workflow filtered to src/**.
-function github({files = ['README.md', 'docs/setup.md'], comments = [], commentStatus = 201, classic = false} = {}) {
+function github({files = ['README.md', 'docs/setup.md'], comments = [], commentStatus = 201, classic = false, workflow = 'build.yml', forbid = null} = {}) {
   const calls = [];
   const routes = {
     'repos/x/y/pulls/42': {state: 'open', mergeable: true, merge_commit_sha: 'merge', changed_files: files.length, html_url: 'https://github.com/x/y/pull/42',
@@ -23,14 +23,16 @@ function github({files = ['README.md', 'docs/setup.md'], comments = [], commentS
     'repos/x/y/rules/branches/main': classic ? [] : [{type: 'required_status_checks', ruleset_id: 7, parameters: {strict_required_status_checks_policy: false, required_status_checks: [{context: 'build'}]}}],
     'repos/x/y/pulls/42/files': files.map(filename => ({filename})),
     'repos/x/y/pulls/42/commits': [{sha: 'head'}],
-    'repos/x/y/contents/.github/workflows': [{type: 'file', name: 'build.yml', path: '.github/workflows/build.yml'}],
-    'repos/x/y/contents/.github/workflows/build.yml': {encoding: 'base64', size: WORKFLOW.length, content: Buffer.from(WORKFLOW).toString('base64')},
+    'repos/x/y/contents/.github/workflows': [{type: 'file', name: workflow, path: '.github/workflows/' + workflow}],
+    ['repos/x/y/contents/.github/workflows/' + workflow]: {encoding: 'base64', size: WORKFLOW.length, content: Buffer.from(WORKFLOW).toString('base64')},
     'repos/x/y/issues/42/comments': comments
   };
   const fetchImpl = async (url, init) => {
     const {pathname} = new URL(url);
-    const endpoint = pathname.slice(1);
+    const endpoint = decodeURIComponent(pathname.slice(1));
     calls.push({method: init.method, endpoint, body: init.body && JSON.parse(init.body), authorization: init.headers.authorization});
+    if (forbid && endpoint.includes(forbid)) return new Response('{}', {status: 403});
+    if (endpoint === 'graphql' && init.body.includes('viewer')) return Response.json({data: {viewer: {login: 'github-actions[bot]'}}});
     if (init.method === 'POST' && endpoint !== 'graphql' || init.method === 'PATCH') {
       return new Response(JSON.stringify({id: 1}), {status: commentStatus});
     }
@@ -94,8 +96,10 @@ test('a check required only by classic branch protection is found with the workf
   w.cleanup();
 });
 test('the existing comment is updated in place, and marked resolved once nothing is stuck', async () => {
-  const existing = {id: 9, body: '<!-- gh-pr-check-explainer -->\nold'};
-  let api = github({comments: [{id: 3, body: 'someone else'}, existing]}), w = workspace();
+  const existing = {id: 9, user: {login: 'github-actions[bot]'}, body: '<!-- gh-pr-check-explainer -->\nold'};
+  // Anyone can post a comment that starts with the marker; only the token's own comment is updated.
+  const copy = {id: 5, user: {login: 'someone'}, body: '<!-- gh-pr-check-explainer -->\ncopy'};
+  let api = github({comments: [{id: 3, user: {login: 'someone'}, body: 'someone else'}, copy, existing]}), w = workspace();
   await run({env: w.env, fetchImpl: api.fetchImpl, log: () => {}});
   assert.deepEqual(api.calls.filter(call => call.method !== 'GET' && call.endpoint !== 'graphql').map(call => [call.method, call.endpoint]),
     [['PATCH', 'repos/x/y/issues/comments/9']]);
@@ -105,6 +109,30 @@ test('the existing comment is updated in place, and marked resolved once nothing
   const patch = api.calls.find(call => call.method === 'PATCH');
   assert.match(patch.body.body, /No required check is stuck/);
   assert.match(w.read('output'), /stuck-checks=\[\]/);
+  w.cleanup();
+  api = github({files: ['src/index.ts'], comments: [existing], classic: true}); w = workspace();
+  await run({env: w.env, fetchImpl: api.fetchImpl, log: () => {}});
+  assert.match(api.calls.find(call => call.method === 'PATCH').body.body, /No required check is stuck/);
+  w.cleanup();
+});
+
+test('evidence that could not be read never marks an earlier diagnosis resolved', async () => {
+  const existing = {id: 9, user: {login: 'github-actions[bot]'}, body: '<!-- gh-pr-check-explainer -->\nold'};
+  for (const forbid of ['/check-runs', 'rules/branches', 'contents/.github']) {
+    const api = github({comments: [existing], forbid}), w = workspace();
+    await run({env: w.env, fetchImpl: api.fetchImpl, log: () => {}});
+    const body = api.calls.find(call => call.method === 'PATCH').body.body;
+    assert.match(body, /^<!-- gh-pr-check-explainer -->\n### Required checks\n\nCould not check the required checks for head because some evidence could not be read\./, forbid);
+    w.cleanup();
+  }
+});
+
+test('workflow and file names from the pull request cannot add links to the comment or summary', async () => {
+  const api = github({workflow: '[build](http:evil.example)<img>.yml'}), w = workspace();
+  await run({env: w.env, fetchImpl: api.fetchImpl, log: () => {}});
+  const body = api.calls.find(call => call.method === 'POST' && call.endpoint !== 'graphql').body.body;
+  assert.ok(body.includes('[.github/workflows/\\[build\\](http:evil.example)\\<img\\>.yml](https://github.com/x/y/blob/head/.github/workflows/%5Bbuild%5D%28http:evil.example%29%3Cimg%3E.yml#L2)'), body);
+  assert.ok(!/[^\\]\[build\]|[^\\]<img>/.test(w.read('summary')));
   w.cleanup();
 });
 
