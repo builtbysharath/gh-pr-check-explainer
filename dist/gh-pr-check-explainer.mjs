@@ -9568,11 +9568,12 @@ function hasFilters(config) {
   return config !== null && config !== void 0 && (typeof config !== "object" || Array.isArray(config) || ["branches", "branches-ignore", "tags", "tags-ignore", "paths", "paths-ignore"].some((key) => config[key] !== void 0));
 }
 function queueReach(events, branch) {
-  if (Object.hasOwn(events, "merge_group")) return branchAllowed(events.merge_group, branch);
-  if (!Object.hasOwn(events, "push")) return false;
+  const group = Object.hasOwn(events, "merge_group") ? branchAllowed(events.merge_group, branch) : false;
+  if (group || !Object.hasOwn(events, "push")) return group;
   const reach = pushReach(events.push);
   if (reach === "unknown" || events.push?.paths || events.push?.["paths-ignore"]) return null;
-  return reach !== "none" && branchAllowed(events.push, "gh-readonly-queue/" + branch + "/pr-1-" + "0".repeat(40));
+  const pushed = reach !== "none" && branchAllowed(events.push, "gh-readonly-queue/" + branch + "/pr-1-" + "0".repeat(40));
+  return pushed || (group === null ? null : pushed);
 }
 function prTier(file, branch) {
   const events = workflowEvents(file.on);
@@ -9648,8 +9649,9 @@ function auditCheck(required, workflows, snapshot) {
     codes.push("workflow_has_no_pr_event");
     details.push(...producers.map((file2) => {
       const events2 = workflowEvents(file2.on);
-      const push = events2.push ? "; its push trigger only runs for " + (events2.push.branches ? "the branches " + [events2.push.branches].flat().join(", ") : "tags") : "";
-      return file2.path + " runs only on " + Object.keys(events2).join(", ") + push + ". None of these give pull requests a result for this check.";
+      const runs = file2.path + " runs only on " + Object.keys(events2).join(", ");
+      if (events2.push?.branches) return runs + "; its push trigger only runs for the branches " + [events2.push.branches].flat().join(", ") + ", so pull requests from any other branch never get a result for this check.";
+      return runs + (events2.push ? "; its push trigger only runs for tags" : "") + ". None of these give pull requests a result for this check.";
     }));
     return finish();
   }
@@ -9684,12 +9686,14 @@ function auditCheck(required, workflows, snapshot) {
   }
   const queue = snapshot.mergeQueue?.enabled === true;
   if (queue) {
-    const queued = queueReach(events, branch);
-    if (queued === null) {
+    const reaches2 = producers.map((item) => workflowEvents(item.on) ? queueReach(workflowEvents(item.on), branch) : null);
+    if (reaches2.includes(true)) {
+    } else if (reaches2.includes(null)) {
       unknown = true;
-      details.push("Whether " + file.path + " runs in the merge queue cannot be fully evaluated.");
-    } else if (!queued) {
-      risk("merge_queue_not_triggered", branch + " uses a merge queue, but " + (Object.hasOwn(events, "merge_group") ? "the merge_group branch filter in " + file.path + " excludes it" : file.path + " has no merge_group trigger") + ", so this check is never reported for queued pull requests and they fail to merge.");
+      details.push("Whether " + producers.filter((item, index) => reaches2[index] === null).map((item) => item.path).join(", ") + " runs in the merge queue cannot be fully evaluated.");
+    } else {
+      const cause = producers.length > 1 ? "none of " + producers.map((item) => item.path).join(", ") + " runs for merge groups into it" : Object.hasOwn(events, "merge_group") ? "the merge_group branch filter in " + file.path + " excludes it" : file.path + " has no merge_group trigger";
+      risk("merge_queue_not_triggered", branch + " uses a merge queue, but " + cause + ", so this check is never reported for queued pull requests and they fail to merge.");
     }
   }
   return finish(unknown, "Reported by " + file.path + " on pull requests" + (queue ? " and in the merge queue" : "") + ".");

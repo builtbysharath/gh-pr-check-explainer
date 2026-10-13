@@ -53,12 +53,15 @@ test('an unfiltered pull_request trigger is fine, and branch filters are compare
 test('push-only workflows miss fork PRs, and other events never satisfy PR checks', () => {
   assert.deepEqual(one({push: null}).codes, ['workflow_push_only']);
   assert.match(one({push: {branches: ['feature/**']}}).details[0], /pull requests from forks never get this check, and branches outside its push filter don't either/);
-  for (const on of [{push: {branches: ['main']}}, {push: {tags: ['v*']}}, {schedule: [{cron: '0 0 * * *'}]}, 'workflow_dispatch']) {
+  for (const on of [{push: {tags: ['v*']}}, {schedule: [{cron: '0 0 * * *'}]}, 'workflow_dispatch']) {
     const row = one(on);
     assert.deepEqual(row.codes, ['workflow_has_no_pr_event'], JSON.stringify(on));
     assert.match(row.details[0], /^\.github\/workflows\/ci\.yml runs only on .*\. None of these give pull requests a result for this check\.$/);
   }
-  assert.match(one({push: {branches: ['main']}}).details[0], /runs only on push; its push trigger only runs for the branches main\./);
+  // A develop -> main pull request still gets the result of a push to develop.
+  const named = one({push: {branches: ['develop']}});
+  assert.deepEqual(named.codes, ['workflow_has_no_pr_event']);
+  assert.match(named.details[0], /^\.github\/workflows\/ci\.yml runs only on push; its push trigger only runs for the branches develop, so pull requests from any other branch never get a result for this check\.$/);
 });
 
 test('workflows that report the same name are ambiguous; reusable and workflow_run copies are not', () => {
@@ -99,6 +102,13 @@ test('a merge queue needs merge_group, or a push trigger that covers the queue b
     assert.deepEqual(queued(on).codes, ['merge_queue_not_triggered'], JSON.stringify(on));
   }
   assert.match(queued({pull_request: null, merge_group: {branches: ['develop']}}).details[0], /the merge_group branch filter in \.github\/workflows\/ci\.yml excludes it/);
+  assert.equal(queued({pull_request: null, push: null, merge_group: {branches: ['develop']}}).state, 'ok');
+  // A separate merge_group workflow can report the check that ci.yml reports on pull requests.
+  const split = files => check(audit(repo(files, {mergeQueue: true})));
+  assert.equal(split({'ci.yml': workflow('pull_request'), 'queue.yml': workflow('merge_group')}).state, 'ok');
+  const neither = split({'ci.yml': workflow('pull_request'), 'release.yml': workflow({push: {branches: ['release']}})});
+  assert.deepEqual(neither.codes, ['merge_queue_not_triggered']);
+  assert.match(neither.details[0], /^main uses a merge queue, but none of \.github\/workflows\/ci\.yml, \.github\/workflows\/release\.yml runs for merge groups into it, so/);
   assert.equal(queued({pull_request: null, push: {paths: ['src/**']}}).state, 'unknown');
   assert.deepEqual(queued({pull_request: {paths: ['src/**']}}).codes, ['workflow_path_filtered', 'merge_queue_not_triggered']);
 });
