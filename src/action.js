@@ -48,14 +48,18 @@ export function stuckChecks(report) {
   return report.checks.filter(check => check.state === 'blocked' && Object.hasOwn(STUCK, check.cause));
 }
 // Whether the evidence was complete enough to say that no required check is stuck.
-function conclusive(report) {
-  return !report.checks.some(check => check.state === 'unknown') &&
-    !report.limitations.some(note => /^(rulesets|classic|Workflow explanations unavailable)/.test(note));
+// Test-merge results are left out: GitHub is often still computing mergeability
+// when this runs, and the stuck causes come from the head commit's evidence.
+function conclusive(snapshot, report) {
+  return ['rulesets', 'classic', 'headChecks', 'headStatuses', 'files', 'runs', 'workflows', 'baseWorkflows'].every(field => snapshot[field]?.available) &&
+    !report.checks.some(check => check.state === 'unknown') &&
+    // Workflow files that don't parse are listed by path.
+    !report.limitations.some(note => note.startsWith('.github/workflows/'));
 }
 
-export function commentBody(report, stuck) {
+export function commentBody(report, stuck, complete = true) {
   if (!stuck.length) {
-    return MARKER + '\n### Required checks\n\n' + (conclusive(report) ? 'No required check is stuck on workflow or rule configuration as of ' + report.headSha + '.' :
+    return MARKER + '\n### Required checks\n\n' + (complete ? 'No required check is stuck on workflow or rule configuration as of ' + report.headSha + '.' :
       'Could not check the required checks for ' + report.headSha + ' because some evidence could not be read. The job summary for this run lists what is missing.') + '\n';
   }
   const rows = stuck.map(check => {
@@ -93,9 +97,9 @@ async function findComment(fetchImpl, token, repository, number) {
 }
 
 // Posts a comment only when a check is stuck; afterwards keeps that one comment current.
-async function updateComment(fetchImpl, token, repository, number, report, stuck) {
+async function updateComment(fetchImpl, token, repository, number, report, stuck, complete) {
   const existing = await findComment(fetchImpl, token, repository, number);
-  const body = commentBody(report, stuck);
+  const body = commentBody(report, stuck, complete);
   if (existing) {
     if (existing.body !== body) await api(fetchImpl, token, 'PATCH', 'repos/' + repository + '/issues/comments/' + existing.id, {body});
   } else if (stuck.length) {
@@ -114,13 +118,14 @@ export async function run({env = process.env, fetchImpl = fetch, log = console.l
       warning('PR Check Explainer runs on pull_request and pull_request_target events; ' + env.GITHUB_EVENT_NAME + ' has no pull request.');
       return 0;
     }
-    const report = analyze(await collect(env.GITHUB_REPOSITORY, number, fetchRequest(token, fetchImpl)));
+    const snapshot = await collect(env.GITHUB_REPOSITORY, number, fetchRequest(token, fetchImpl));
+    const report = analyze(snapshot);
     const stuck = stuckChecks(report);
     if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, markdown(report));
     if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, 'verdict=' + report.overall + '\nstuck-checks=' + JSON.stringify(stuck.map(check => check.context)) + '\n');
     if (env.INPUT_COMMENT !== 'false') {
       try {
-        await updateComment(fetchImpl, token, env.GITHUB_REPOSITORY, number, report, stuck);
+        await updateComment(fetchImpl, token, env.GITHUB_REPOSITORY, number, report, stuck, conclusive(snapshot, report));
       } catch (error) {
         warning('Could not update the PR comment: ' + error.message + ' Pull requests from forks get a read-only token on pull_request; the job summary has the report.');
       }

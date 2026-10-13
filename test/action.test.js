@@ -10,7 +10,7 @@ import {fetchRequest, run} from '../src/action.js';
 const WORKFLOW = "name: Build\non:\n  pull_request:\n    paths:\n      - 'src/**'\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n";
 
 // A fake GitHub API for a docs-only PR whose required `build` check comes from a workflow filtered to src/**.
-function github({files = ['README.md', 'docs/setup.md'], comments = [], commentStatus = 201, classic = false, workflow = 'build.yml', forbid = null} = {}) {
+function github({files = ['README.md', 'docs/setup.md'], comments = [], commentStatus = 201, classic = false, workflow = 'build.yml', forbid = null, text = WORKFLOW} = {}) {
   const calls = [];
   const routes = {
     'repos/x/y/pulls/42': {state: 'open', mergeable: true, merge_commit_sha: 'merge', changed_files: files.length, html_url: 'https://github.com/x/y/pull/42',
@@ -24,7 +24,7 @@ function github({files = ['README.md', 'docs/setup.md'], comments = [], commentS
     'repos/x/y/pulls/42/files': files.map(filename => ({filename})),
     'repos/x/y/pulls/42/commits': [{sha: 'head'}],
     'repos/x/y/contents/.github/workflows': [{type: 'file', name: workflow, path: '.github/workflows/' + workflow}],
-    ['repos/x/y/contents/.github/workflows/' + workflow]: {encoding: 'base64', size: WORKFLOW.length, content: Buffer.from(WORKFLOW).toString('base64')},
+    ['repos/x/y/contents/.github/workflows/' + workflow]: {encoding: 'base64', size: text.length, content: Buffer.from(text).toString('base64')},
     'repos/x/y/issues/42/comments': comments
   };
   const fetchImpl = async (url, init) => {
@@ -118,11 +118,11 @@ test('the existing comment is updated in place, and marked resolved once nothing
 
 test('evidence that could not be read never marks an earlier diagnosis resolved', async () => {
   const existing = {id: 9, user: {login: 'github-actions[bot]'}, body: '<!-- gh-pr-check-explainer -->\nold'};
-  for (const forbid of ['/check-runs', 'rules/branches', 'contents/.github']) {
-    const api = github({comments: [existing], forbid}), w = workspace();
+  for (const [forbid, text] of [['/check-runs'], ['rules/branches'], ['contents/.github'], ['pulls/42/files'], ['actions/runs'], [null, 'on: [']]) {
+    const api = github({files: ['src/index.ts'], comments: [existing], forbid, text}), w = workspace();
     await run({env: w.env, fetchImpl: api.fetchImpl, log: () => {}});
     const body = api.calls.find(call => call.method === 'PATCH').body.body;
-    assert.match(body, /^<!-- gh-pr-check-explainer -->\n### Required checks\n\nCould not check the required checks for head because some evidence could not be read\./, forbid);
+    assert.match(body, /^<!-- gh-pr-check-explainer -->\n### Required checks\n\nCould not check the required checks for head because some evidence could not be read\./, forbid || text);
     w.cleanup();
   }
 });
