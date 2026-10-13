@@ -20,6 +20,16 @@ function leaves(value) {
 function same(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
+// Matrix variable names are case-insensitive, so they are compared in lower case.
+function lowerKeys(entry) {
+  return Object.fromEntries(Object.entries(entry).map(([key, value]) => [key.toLowerCase(), value]));
+}
+// A property as an expression reads it: case-insensitive, and only the object's own keys.
+function property(object, key) {
+  if (object === null || typeof object !== 'object') return undefined;
+  const own = Object.keys(object).find(name => name.toLowerCase() === key.toLowerCase());
+  return own === undefined ? undefined : object[own];
+}
 
 // Expands jobs.<id>.strategy.matrix as GitHub does (checked against real check
 // runs in test/matrix.test.js). Each combination keeps the values its job name
@@ -27,13 +37,15 @@ function same(a, b) {
 // a new combination. Returns null when the result can't be predicted.
 function matrixCombinations(matrix) {
   if (!matrix || typeof matrix !== 'object' || Array.isArray(matrix) || hasExpression(matrix) || hasNull(matrix)) return null;
-  const {include = [], exclude = [], ...axes} = matrix;
+  const {include: includes = [], exclude: excludes = [], ...variables} = matrix;
+  const axes = lowerKeys(variables);
   const keys = Object.keys(axes);
-  if (!Array.isArray(include) || !Array.isArray(exclude) || keys.some(key => !Array.isArray(axes[key]) || !axes[key].length)) return null;
+  if (!Array.isArray(includes) || !Array.isArray(excludes) || keys.some(key => !Array.isArray(axes[key]) || !axes[key].length)) return null;
   if (keys.reduce((count, key) => count * axes[key].length, 1) > MAX_MATRIX_JOBS) return null;
   let combinations = keys.length ? [{}] : [];
   for (const key of keys) combinations = combinations.flatMap(combination => axes[key].map(value => ({...combination, [key]: value})));
-  for (const entry of [...include, ...exclude]) if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  for (const entry of [...includes, ...excludes]) if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  const include = includes.map(lowerKeys), exclude = excludes.map(lowerKeys);
   combinations = combinations.filter(combination => !exclude.some(entry => Object.entries(entry).every(([key, value]) => same(combination[key], value))));
   const results = combinations.map(values => ({values, shown: keys.map(key => values[key])}));
   const originals = results.length;
@@ -61,9 +73,10 @@ export function jobCheckNames(id, job) {
   if (matrix === undefined) return hasExpression(name) ? null : [name];
   const combinations = matrixCombinations(matrix);
   if (!combinations) return null;
-  // A name without expressions gets the matrix values appended.
-  if (!hasExpression(name)) return combinations.map(({shown}) => name + ' (' + shown.flatMap(leaves).join(', ') + ')');
-  const parts = name.split(/(\$\{\{.*?\}\})/);
+  // A name without expressions gets the matrix values appended. A job that its
+  // if condition skips reports one check, named without them.
+  if (!hasExpression(name)) return [...combinations.map(({shown}) => name + ' (' + shown.flatMap(leaves).join(', ') + ')'), ...(job.if === undefined ? [] : [name])];
+  const parts = name.split(/(\$\{\{[\s\S]*?\}\})/);
   const paths = parts.map((part, index) => index % 2 ? part.match(/^\$\{\{\s*matrix((?:\.[A-Za-z_][\w-]*)+)\s*\}\}$/)?.[1].slice(1).split('.') : null);
   if (paths.some((path, index) => index % 2 && !path)) return null;
   const names = [];
@@ -74,7 +87,7 @@ export function jobCheckNames(id, job) {
         text += parts[index];
         continue;
       }
-      const value = paths[index].reduce((current, key) => current?.[key], values);
+      const value = paths[index].reduce(property, values);
       if (value !== null && typeof value === 'object') return null;
       text += value === undefined ? '' : String(value);
     }

@@ -42,6 +42,18 @@ test('matrix names that depend on expressions stay unexplained', () => {
   assert.equal(jobCheckNames('build', {strategy: {matrix: {a: Array.from({length: 17}, (_, i) => i), b: Array.from({length: 17}, (_, i) => i)}}}), null);
 });
 
+test('matrix names follow GitHub for variable case, missing properties, line breaks and skipped jobs', () => {
+  // Matrix variable names are case-insensitive.
+  assert.deepEqual(jobCheckNames('t', {name: 'Test ${{ matrix.OS }}', strategy: {matrix: {os: ['ubuntu-latest']}}}), ['Test ubuntu-latest']);
+  assert.deepEqual(jobCheckNames('t', {strategy: {matrix: {os: ['a', 'b'], exclude: [{OS: 'b'}]}}}), ['t (a)']);
+  assert.deepEqual(jobCheckNames('t', {strategy: {matrix: {os: ['a'], include: [{OS: 'b', extra: 'x'}]}}}), ['t (a)', 't (b, x)']);
+  // A property the matrix doesn't have is empty, even one every JavaScript object has.
+  assert.deepEqual(jobCheckNames('t', {name: 'Check ${{ matrix.constructor }}x', strategy: {matrix: {os: ['a']}}}), ['Check x']);
+  assert.deepEqual(jobCheckNames('t', {name: 'Test ${{\n  matrix.os\n}}', strategy: {matrix: {os: ['a']}}}), ['Test a']);
+  // When its if condition skips a matrix job, GitHub reports one check named without the matrix values.
+  assert.deepEqual(jobCheckNames('build', {if: "github.event_name == 'push'", strategy: {matrix: {os: ['a', 'b']}}}), ['build (a)', 'build (b)', 'build']);
+});
+
 test('a required matrix check skipped by a path filter is explained', () => {
   const snapshot = JSON.parse(readFileSync(new URL('../examples/path-filter.json', import.meta.url), 'utf8'));
   snapshot.workflows.data[0].text = "name: Build\non:\n  pull_request:\n    paths:\n      - 'src/**'\njobs:\n  build:\n    strategy:\n      matrix:\n        os: [ubuntu-latest, macos-latest]\n    runs-on: ${{ matrix.os }}\n    steps:\n      - run: npm test\n";

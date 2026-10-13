@@ -9185,15 +9185,25 @@ function leaves(value) {
 function same(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
+function lowerKeys(entry) {
+  return Object.fromEntries(Object.entries(entry).map(([key, value]) => [key.toLowerCase(), value]));
+}
+function property(object, key) {
+  if (object === null || typeof object !== "object") return void 0;
+  const own = Object.keys(object).find((name) => name.toLowerCase() === key.toLowerCase());
+  return own === void 0 ? void 0 : object[own];
+}
 function matrixCombinations(matrix) {
   if (!matrix || typeof matrix !== "object" || Array.isArray(matrix) || hasExpression(matrix) || hasNull(matrix)) return null;
-  const { include = [], exclude = [], ...axes } = matrix;
+  const { include: includes = [], exclude: excludes = [], ...variables } = matrix;
+  const axes = lowerKeys(variables);
   const keys = Object.keys(axes);
-  if (!Array.isArray(include) || !Array.isArray(exclude) || keys.some((key) => !Array.isArray(axes[key]) || !axes[key].length)) return null;
+  if (!Array.isArray(includes) || !Array.isArray(excludes) || keys.some((key) => !Array.isArray(axes[key]) || !axes[key].length)) return null;
   if (keys.reduce((count, key) => count * axes[key].length, 1) > MAX_MATRIX_JOBS) return null;
   let combinations = keys.length ? [{}] : [];
   for (const key of keys) combinations = combinations.flatMap((combination) => axes[key].map((value) => ({ ...combination, [key]: value })));
-  for (const entry of [...include, ...exclude]) if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  for (const entry of [...includes, ...excludes]) if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  const include = includes.map(lowerKeys), exclude = excludes.map(lowerKeys);
   combinations = combinations.filter((combination) => !exclude.some((entry) => Object.entries(entry).every(([key, value]) => same(combination[key], value))));
   const results = combinations.map((values) => ({ values, shown: keys.map((key) => values[key]) }));
   const originals = results.length;
@@ -9217,8 +9227,8 @@ function jobCheckNames(id, job) {
   if (matrix === void 0) return hasExpression(name) ? null : [name];
   const combinations = matrixCombinations(matrix);
   if (!combinations) return null;
-  if (!hasExpression(name)) return combinations.map(({ shown }) => name + " (" + shown.flatMap(leaves).join(", ") + ")");
-  const parts = name.split(/(\$\{\{.*?\}\})/);
+  if (!hasExpression(name)) return [...combinations.map(({ shown }) => name + " (" + shown.flatMap(leaves).join(", ") + ")"), ...job.if === void 0 ? [] : [name]];
+  const parts = name.split(/(\$\{\{[\s\S]*?\}\})/);
   const paths = parts.map((part, index) => index % 2 ? part.match(/^\$\{\{\s*matrix((?:\.[A-Za-z_][\w-]*)+)\s*\}\}$/)?.[1].slice(1).split(".") : null);
   if (paths.some((path, index) => index % 2 && !path)) return null;
   const names = [];
@@ -9229,7 +9239,7 @@ function jobCheckNames(id, job) {
         text += parts[index];
         continue;
       }
-      const value = paths[index].reduce((current, key) => current?.[key], values);
+      const value = paths[index].reduce(property, values);
       if (value !== null && typeof value === "object") return null;
       text += value === void 0 ? "" : String(value);
     }
